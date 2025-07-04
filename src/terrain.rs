@@ -11,15 +11,16 @@ pub fn spawn_heightmap(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    let seed: u32 = 17;
-
-    let terrain_height = 40.;
+    let seed: u32 = 17; // seed for Perlin noise
+    let terrain_height = 50.; // height of terrain in Plane3d units
+    let subdivision_width = 75.; // size of subdivision in Plane3d units
+    let terrain_width = 10000.; // size of terrain in Plane3d units
 
     let mut terrain = Mesh::from(
         Plane3d::default()
             .mesh()
-            .size(10000., 10000.)
-            .subdivisions(100)
+            .size(terrain_width, terrain_width)
+            .subdivisions((terrain_width / subdivision_width).round() as u32)
     );
     
     if let Some(VertexAttributeValues::Float32x3(
@@ -30,8 +31,8 @@ pub fn spawn_heightmap(
 
         for pos in positions.iter_mut() {
             let val = perlin.get([
-                pos[0] as f64 / 300., 
-                pos[2] as f64 / 300.,
+                pos[0] as f64 / 250., 
+                pos[2] as f64 / 250.,
                 ]);
             pos[1] = val as f32 * terrain_height;
         }
