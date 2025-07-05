@@ -5,14 +5,21 @@ use bevy::{
     window::{CursorGrabMode, PrimaryWindow, PresentMode},
     pbr::wireframe::WireframePlugin,
     render::{render_resource::WgpuFeatures, settings::{RenderCreation, WgpuSettings}, RenderPlugin,},
+    platform::collections::HashMap,
 };
-use bevy_fly_camera::{FlyCamera, FlyCameraPlugin};
+//use bevy_fly_camera::{FlyCamera, FlyCameraPlugin};
 use iyes_perf_ui::prelude::*;
+use bevy_panorbit_camera::{
+    PanOrbitCameraPlugin, 
+    PanOrbitCamera,
+};
+use terrain::TerrainStore;
 
 mod terrain;
 
 fn main() {
     App::new()
+        .insert_resource(TerrainStore(HashMap::default()))
         .add_plugins((
             DefaultPlugins
                 //for disabling fps cap (vsync)
@@ -32,14 +39,13 @@ fn main() {
                 ..default()
             }),
             WireframePlugin::default(),
+            PanOrbitCameraPlugin,
         ))
 
 
 
         //sky color
         .insert_resource(ClearColor(Color::srgb(0.53, 0.81, 0.92)))
-
-        .add_plugins(FlyCameraPlugin)
         .add_plugins(bevy::diagnostic::FrameTimeDiagnosticsPlugin::default())
         .add_plugins(bevy::diagnostic::EntityCountDiagnosticsPlugin)
         .add_plugins(bevy::render::diagnostic::RenderDiagnosticsPlugin)
@@ -51,22 +57,33 @@ fn main() {
         .add_systems(Update, (
             grab_mouse,
             terrain::toggle_wireframe,
+            control_ship,
+            sync_camera_to_ship,
         ))
         .run();
 }
 
 
-fn setup(mut commands: Commands, mut q_windows: Query<&mut Window, With<PrimaryWindow>>) {
+fn setup(
+    mut commands: Commands, 
+    mut q_windows: Query<&mut Window, With<PrimaryWindow>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
     // camera
-    commands
-        .spawn((
-            Camera3d::default(),
-            Transform::from_xyz(0.0, 200.0, 800.0)
-        ))
-        .insert(FlyCamera {
-            sensitivity: 8.0,
-            ..default()
-        });
+    commands.spawn((
+        Transform::from_translation(Vec3::new(0.0, 200.0, 0.0)),
+        PanOrbitCamera::default(),
+        ShipCam,
+    ));
+
+    //Character stand-in
+    commands.spawn((
+        Mesh3d(meshes.add(Cuboid::new(1., 2., 1.))),
+        MeshMaterial3d(materials.add(Color::WHITE)),
+        Transform::from_translation(Vec3::new(0.0, 2.0, 0.0)),
+        Ship,
+    ));
 
     // lock mouse into window by default
     if let Ok(mut primary_window) = q_windows.single_mut() {
@@ -108,7 +125,6 @@ fn grab_mouse(
     mut q_windows: Query<&mut Window, With<PrimaryWindow>>,
     mouse: Res<ButtonInput<MouseButton>>,
     key: Res<ButtonInput<KeyCode>>,
-    mut camera_controls: Query<&mut FlyCamera>,
 ) {
     if let Ok(mut primary_window) = q_windows.single_mut() {
         if mouse.just_pressed(MouseButton::Left) {
@@ -116,18 +132,52 @@ fn grab_mouse(
             primary_window.cursor_options.visible = false;
             let center = Vec2::new(primary_window.width() / 2.0, primary_window.height() / 2.0);
             primary_window.set_cursor_position(Some(center));
-
-            for mut options in camera_controls.iter_mut() {
-                options.enabled = true; // Enable FlyCamera when mouse is pressed
-            }
         }
 
         if key.just_pressed(KeyCode::Escape) {
             primary_window.cursor_options.grab_mode = CursorGrabMode::None;
             primary_window.cursor_options.visible = true;
-            for mut options in camera_controls.iter_mut() {
-                options.enabled = false; // Disable FlyCamera when Escape is pressed
-            }
         }
     }
+}
+
+#[derive(Component)]
+struct Ship;
+
+#[derive(Component)]
+struct ShipCam;
+
+fn control_ship(
+    input: Res<ButtonInput<KeyCode>>,
+    mut ships: Query<&mut Transform, With<Ship>>,
+) {
+    let speed: f32 = 0.1;
+    let mut direction = Vec2::new(0., 0.);
+    if input.pressed(KeyCode::KeyW) {
+        direction.y += speed;
+    }
+    if input.pressed(KeyCode::KeyS) {
+        direction.y -= speed;
+    }
+    if input.pressed(KeyCode::KeyA) {
+        direction.x += speed;
+    }
+    if input.pressed(KeyCode::KeyD) {
+        direction.x -= speed;
+    }
+    for mut ship in &mut ships {
+        ship.translation.x += direction.x;
+        ship.translation.z += direction.y;
+    }
+}
+
+fn sync_camera_to_ship(
+    mut pan_orbit_q: Query<&mut PanOrbitCamera>, 
+    cube_q: Query<&Transform, With<Ship>>) {
+        if let Ok(mut pan_orbit) = pan_orbit_q.single_mut() {
+            if let Ok(cube_tfm) = cube_q.single() {
+                pan_orbit.target_focus = cube_tfm.translation;
+                pan_orbit.force_update = true;
+            }
+        }
 }
