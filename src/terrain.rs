@@ -13,21 +13,10 @@ pub fn spawn_heightmap(
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     let seed: u32 = rand::rng().random(); // seed for Perlin noise
-    let terrain_height = 20.; // height of terrain in Plane3d units
+    //let terrain_height = 20.; // height of terrain in Plane3d units
     let subdivision_width = 50.; // size of subdivision in Plane3d units
     let terrain_width = 10000.; // size of terrain in Plane3d units
     let noise = Perlin::new(seed); // create a new Perlin noise generator with the given seed
-
-
-    fn apply_noise(pos: &mut [f32;3], noise: &Perlin, amplitude: f32, period: f32) -> () {
-        let val = noise.get([
-            (pos[0] / period) as f64, 
-            (pos[2] / period) as f64,
-            ]);
-        pos[1] += val as f32 * amplitude;
-    }
-
-
 
     // create a Plane3d mesh with the specified size and subdivisions
     let mut terrain = Mesh::from(
@@ -37,45 +26,58 @@ pub fn spawn_heightmap(
             .subdivisions((terrain_width / subdivision_width).round() as u32)
     );
     
+    fn apply_noise(pos: &mut [f32;3], noise: &Perlin, amplitude: f32, period: f32) -> () {
+        let val = noise.get([
+            (pos[0] / period) as f64, 
+            (pos[2] / period) as f64,
+            ]);
+        pos[1] += val as f32 * amplitude;
+    }
+
+
     if let Some(VertexAttributeValues::Float32x3(
         positions,
     )) = terrain.attribute_mut(Mesh::ATTRIBUTE_POSITION)
     {
         // iterate over the positions and apply Perlin noise to the y-coordinate
         for pos in positions.iter_mut() {
+            //texture
             apply_noise(pos, &noise, 20., 300.);
+
+            //hills
+            apply_noise(pos, &noise, 120., 1000.);
         }
         // TODO: fix color system depending on noise octaves later
         // determine color based on the y-coordinate (height)
         let colors: Vec<[f32; 4]> = positions
             .iter()
-            .map(|[x, y, z]| {
+            .map(|[x, _, z]| {
                 //let y = *y / terrain_height * 2.;
-                let y = *y/2.0 / terrain_height;
+                //let y = *y/2.0 / terrain_height;
 
-                if y > 0.85 {
+                //if y > 0.85 {
                     // white for snow
-                    Color::srgba(5., 5., 5., 1.).to_linear().to_f32_array()
-                } else if y > 0.75 {
+                //    Color::srgba(5., 5., 5., 1.).to_linear().to_f32_array()
+                //} else if y > 0.75 {
                     // gray for rock
-                    Color::srgba(0.5, 0.5, 0.5, 1.).to_linear().to_f32_array()
-                } else if y > 0.35{
+                //    Color::srgba(0.5, 0.5, 0.5, 1.).to_linear().to_f32_array()
+                //} else if y > 0.35{
                     // green for grass
+                
+                let val = (noise.get([
+                    *x as f64 / 10.,
+                    *z as f64 / 10.,
+                ]) / 10.) + 1.;
 
-                    let val = (noise.get([
-                        *x as f64 / 10.,
-                        *z as f64 / 10.,
-                    ]) / 10.) + 1.;
 
+                (Color::srgba(0.3, 0.5, 0.2, 1.).to_linear()
+                * val as f32)
+                .to_f32_array()
 
-                   (Color::srgba(0.3, 0.5, 0.2, 1.).to_linear()
-                    * val as f32)
-                    .to_f32_array()
-
-                } else {
+                //} else {
                     //yellow for sand
-                    Color::srgba(0.8, 0.7, 0.4, 1.).to_linear().to_f32_array()
-                }
+                //    Color::srgba(0.8, 0.7, 0.4, 1.).to_linear().to_f32_array()
+                
             })
             .collect();
         terrain.insert_attribute(
