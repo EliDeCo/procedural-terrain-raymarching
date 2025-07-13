@@ -1,11 +1,7 @@
 use std::f32::consts::FRAC_PI_4;
 
 use bevy::{
-    prelude::*,
-    window::{CursorGrabMode, PrimaryWindow, PresentMode},
-    pbr::wireframe::WireframePlugin,
-    render::{render_resource::WgpuFeatures, settings::{RenderCreation, WgpuSettings}, RenderPlugin,},
-    platform::collections::HashMap,
+    pbr::wireframe::{WireframeConfig, WireframePlugin}, platform::collections::HashMap, prelude::*, render::{render_resource::WgpuFeatures, settings::{RenderCreation, WgpuSettings}, RenderPlugin,}, window::{CursorGrabMode, PresentMode, PrimaryWindow}
 };
 //use bevy_fly_camera::{FlyCamera, FlyCameraPlugin};
 use iyes_perf_ui::prelude::*;
@@ -41,7 +37,10 @@ fn main() {
             WireframePlugin::default(),
             PanOrbitCameraPlugin,
         ))
-
+        .insert_resource(WireframeConfig {
+            global: false,
+            ..default()
+        })
 
 
         //sky color

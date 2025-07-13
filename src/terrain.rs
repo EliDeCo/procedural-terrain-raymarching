@@ -1,5 +1,5 @@
 use bevy::{ 
-    pbr::wireframe::Wireframe, 
+    pbr::wireframe::WireframeConfig, 
     platform::collections::HashMap, prelude::*, 
     render::mesh::VertexAttributeValues,
     //render::{render_resource::WgpuFeatures, settings::{RenderCreation, WgpuSettings}, RenderPlugin,}
@@ -14,8 +14,8 @@ pub fn spawn_heightmap(
     //mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     //spawn the first 9 chunks
-    for x in -20..=20 {
-        for y in -20..=20 {
+    for x in -1..=1 {
+        for y in -1..=1 {
             commands.queue(SpawnTerrain(IVec2::new(x, y)));
         }
     }
@@ -149,11 +149,15 @@ impl Command for SpawnTerrain {
         terrain.duplicate_vertices();
         terrain.compute_flat_normals();
 
+
+
         // add the mesh to the world
         let mesh = world
             .get_resource_mut::<Assets<Mesh>>()
             .expect("meshes db to be available")
             .add(terrain);
+
+
         let material = world
             .get_resource_mut::<Assets<StandardMaterial>>()
             .expect("StandardMaterial db to be available")
@@ -168,11 +172,11 @@ impl Command for SpawnTerrain {
         world.spawn((
             Mesh3d(mesh),
             MeshMaterial3d(material),
-            Transform::from_xyz(
-                self.0.x as f32 * mesh_size,
-                0.,
-                self.0.y as f32 * mesh_size,
-            ),
+            Transform::from_translation(Vec3::new(
+                (self.0.x as f32 * mesh_size).round(),
+                0.0,
+                (self.0.y as f32 * mesh_size).round(),
+            )),
             Terrain,
         ));
     }
@@ -183,25 +187,11 @@ impl Command for SpawnTerrain {
 #[derive(Component)]
 pub struct Terrain;
 
-// toggles visibility of wireframe on meshes with Terrain component
 pub fn toggle_wireframe(
-    mut commands: Commands,
-    landscapes_wireframe: Query<
-        Entity,
-        (With<Terrain>, With<Wireframe>),
-    >,
-    landscapes: Query<
-        Entity,
-        (With<Terrain>, Without<Wireframe>),
-    >,
+    mut config: ResMut<WireframeConfig>,
     input: Res<ButtonInput<KeyCode>>,
 ) {
-    if input.just_pressed(KeyCode::KeyP) {
-        for terrain in &landscapes {
-            commands.entity(terrain).insert(Wireframe);
-        }
-        for terrain in &landscapes_wireframe {
-            commands.entity(terrain).remove::<Wireframe>();
-        }
+    if input.just_pressed(KeyCode::Space) {
+        config.global = !config.global;
     }
 }
