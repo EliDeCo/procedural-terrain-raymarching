@@ -17,10 +17,10 @@ use bevy_panorbit_camera::{PanOrbitCamera, PanOrbitCameraPlugin};
 use iyes_perf_ui::prelude::*;
 use noise::{NoiseFn, Perlin};
 
-const CHUNK_SIZE: f32 = 512.; // size of each chunk in meters
-const CHUNK_SUBDIVISIONS: u32 = 63; // subdivisions per chunk (N+1 vertices per side)
-const RENDER_DISTANCE: i32 = 9; // how many chunks to render around the player
-const PLAYER_SPEED: f32 = 0.1; // speed of the player ship
+const CHUNK_SIZE: f32 = 1024.; // size of each chunk in meters
+const CHUNK_SUBDIVISIONS: u32 = 127; // subdivisions per chunk (N+1 vertices per side)
+const RENDER_DISTANCE: i32 = 4; // how many chunks to render around the player
+const PLAYER_SPEED: f32 = 0.5; // speed of the player ship
 const SEED: u32 = 2007; // seed for the Perlin noise generator
 
 
@@ -240,7 +240,7 @@ impl Command for SpawnTerrain {
         {
             // mesh already exists
             // do nothing for now
-            warn!("mesh {} already exists", self.0);
+            //warn!("mesh {} already exists", self.0);
             return;
         };
         let noise = Perlin::new(SEED); // create a new Perlin noise generator with the given seed
