@@ -20,7 +20,7 @@ use noise::{NoiseFn, Perlin};
 const CHUNK_SIZE: f32 = 1024.; // size of each chunk in meters
 const CHUNK_SUBDIVISIONS: u32 = 127; // subdivisions per chunk (N+1 vertices per side)
 const RENDER_DISTANCE: i32 = 4; // how many chunks to render around the player
-const PLAYER_SPEED: f32 = 0.5; // speed of the player ship
+const PLAYER_SPEED: f32 = 100.; // speed of the player ship
 const SEED: u32 = 2007; // seed for the Perlin noise generator
 
 
@@ -148,7 +148,8 @@ struct Ship;
 #[derive(Component)]
 struct ShipCam;
 
-fn control_ship(input: Res<ButtonInput<KeyCode>>, mut ships: Query<&mut Transform, With<Ship>>) {
+fn control_ship(input: Res<ButtonInput<KeyCode>>, mut ships: Query<&mut Transform, With<Ship>>, time: Res<Time>,) {
+    let delta = time.delta();
     let mut direction = Vec2::new(0., 0.);
     if input.pressed(KeyCode::KeyW) {
         direction.y += PLAYER_SPEED;
@@ -163,8 +164,8 @@ fn control_ship(input: Res<ButtonInput<KeyCode>>, mut ships: Query<&mut Transfor
         direction.x -= PLAYER_SPEED;
     }
     for mut ship in &mut ships {
-        ship.translation.x += direction.x;
-        ship.translation.z += direction.y;
+        ship.translation.x += direction.x * delta.as_secs_f32();
+        ship.translation.z += direction.y * delta.as_secs_f32();
     }
 }
 
