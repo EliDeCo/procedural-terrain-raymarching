@@ -17,8 +17,8 @@ use bevy_panorbit_camera::{PanOrbitCamera, PanOrbitCameraPlugin};
 use iyes_perf_ui::prelude::*;
 use noise::{NoiseFn, Perlin};
 
-const CHUNK_SIZE: f32 = 1024.; // size of each chunk in meters
-const RENDER_DISTANCE: i32 = 4; // how many chunks to render around the player
+const CHUNK_SIZE: f32 = 512.; // size of each chunk in meters
+const RENDER_DISTANCE: i32 = 9; // how many chunks to render around the player
 const PLAYER_SPEED: f32 = 100.; // speed of the player ship
 const SEED: u32 = 2007; // seed for the Perlin noise generator
 
@@ -152,22 +152,30 @@ fn control_ship(
     time: Res<Time>,
 ) {
     let delta = time.delta();
-    let mut direction = Vec2::new(0., 0.);
+    let mut direction = Vec3::ZERO;
     if input.pressed(KeyCode::KeyW) {
-        direction.y += PLAYER_SPEED;
+        direction.z += 1.0;
     }
     if input.pressed(KeyCode::KeyS) {
-        direction.y -= PLAYER_SPEED;
+        direction.z -= 1.0;
     }
     if input.pressed(KeyCode::KeyA) {
-        direction.x += PLAYER_SPEED;
+        direction.x -= 1.0;
     }
     if input.pressed(KeyCode::KeyD) {
-        direction.x -= PLAYER_SPEED;
+        direction.x += 1.0;
     }
-    for mut ship in &mut ships {
-        ship.translation.x += direction.x * delta.as_secs_f32();
-        ship.translation.z += direction.y * delta.as_secs_f32();
+    if input.pressed(KeyCode::KeyQ) {
+        direction.y += 1.0;
+    }
+    if input.pressed(KeyCode::KeyE) {
+        direction.y -= 1.0;
+    }
+    if direction != Vec3::ZERO {
+        let movement = direction.normalize() * PLAYER_SPEED * delta.as_secs_f32();
+        if let Ok(mut ship) = ships.single_mut() {
+            ship.translation += movement;
+        }
     }
 }
 
@@ -316,10 +324,10 @@ fn manage_chunks(
         return;
     };
 
-    let xz = (transform.translation.xz() / CHUNK_SIZE).trunc().as_ivec2();
+    let player_chunk = (transform.translation.xz() / CHUNK_SIZE).trunc().as_ivec2();
 
-    if *current_chunk != xz {
-        *current_chunk = xz;
+    if *current_chunk != player_chunk {
+        *current_chunk = player_chunk;
 
         let mut chunks_to_render = Vec::new();
 
@@ -439,11 +447,17 @@ fn generate_chunk_mesh(chunk_coords: IVec2, subdivisions: u32) -> Mesh {
 
 fn get_lod(chunk_coords: IVec2, player_chunk: IVec2) -> u32 {
     let distance = (chunk_coords - player_chunk).length_squared();
-    if distance <= 4 {
+    if distance <= 2 {
         127 // High detail near the player
-    //     } else if distance <= 9 {
-    //         63
+    } else if distance <= 9 {
+             63
+    } else if distance <= 25 {
+             31
+    } else if distance <= 49 {
+             15
+    } else if distance <= 64 {
+             7
     } else {
-        7 // Very low detail far away
+        3 // Very low detail far away
     }
 }
