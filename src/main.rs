@@ -18,11 +18,9 @@ use iyes_perf_ui::prelude::*;
 use noise::{NoiseFn, Perlin};
 
 const CHUNK_SIZE: f32 = 1024.; // size of each chunk in meters
-const CHUNK_SUBDIVISIONS: u32 = 127; // subdivisions per chunk (N+1 vertices per side)
 const RENDER_DISTANCE: i32 = 4; // how many chunks to render around the player
 const PLAYER_SPEED: f32 = 100.; // speed of the player ship
 const SEED: u32 = 2007; // seed for the Perlin noise generator
-
 
 fn main() {
     App::new()
@@ -148,7 +146,11 @@ struct Ship;
 #[derive(Component)]
 struct ShipCam;
 
-fn control_ship(input: Res<ButtonInput<KeyCode>>, mut ships: Query<&mut Transform, With<Ship>>, time: Res<Time>,) {
+fn control_ship(
+    input: Res<ButtonInput<KeyCode>>,
+    mut ships: Query<&mut Transform, With<Ship>>,
+    time: Res<Time>,
+) {
     let delta = time.delta();
     let mut direction = Vec2::new(0., 0.);
     if input.pressed(KeyCode::KeyW) {
@@ -192,7 +194,7 @@ fn spawn_heightmap(
         for y in -RENDER_DISTANCE..=RENDER_DISTANCE {
             let offset = IVec2::new(x, y);
             if offset.length_squared() <= RENDER_DISTANCE * RENDER_DISTANCE {
-                commands.queue(SpawnTerrain(offset));
+                commands.queue(SpawnTerrain::new(offset, IVec2::ZERO));
             }
         }
     }
@@ -226,9 +228,21 @@ fn apply_noise(
 }
 
 #[derive(Resource)]
-struct TerrainStore(pub HashMap<IVec2, Handle<Mesh>>);
+struct TerrainStore(pub HashMap<IVec2, (Handle<Mesh>, u32)>);
 
-struct SpawnTerrain(IVec2);
+struct SpawnTerrain {
+    chunk_coords: IVec2,
+    player_chunk: IVec2, // ✅ Add this
+}
+
+impl SpawnTerrain {
+    fn new(chunk_coords: IVec2, player_chunk: IVec2) -> Self {
+        Self {
+            chunk_coords,
+            player_chunk,
+        }
+    }
+}
 
 impl Command for SpawnTerrain {
     fn apply(self, world: &mut World) {
@@ -236,74 +250,26 @@ impl Command for SpawnTerrain {
             .get_resource_mut::<TerrainStore>()
             .expect("TerrainStore to be available")
             .0
-            .get(&self.0)
+            .get(&self.chunk_coords)
             .is_some()
         {
             // mesh already exists
             // do nothing for now
-            //warn!("mesh {} already exists", self.0);
+            //warn!("mesh {} already exists", self.chunk_coords);
             return;
         };
-        let noise = Perlin::new(SEED); // create a new Perlin noise generator with the given seed
 
-        //1 unit = 1 meter
-        // each chunk is 256x256 meters with 31 subdivisions (32 vertices per side)
-        let mut terrain = Mesh::from(
-            Plane3d::default()
-                .mesh()
-                .size(CHUNK_SIZE, CHUNK_SIZE)
-                .subdivisions(CHUNK_SUBDIVISIONS),
-        );
+        // determine lod then generate the mesh for the chunk
 
-        if let Some(VertexAttributeValues::Float32x3(positions)) =
-            terrain.attribute_mut(Mesh::ATTRIBUTE_POSITION)
-        {
-            // iterate over the positions and apply Perlin noise to the y-coordinate
-            for pos in positions.iter_mut() {
-                //base texture
-                apply_noise(pos, &noise, 0.5, 30., 1.0, self.0, CHUNK_SIZE);
+        let local_subdivisions = get_lod(self.chunk_coords, self.player_chunk);
 
-                //rolling hills
-                apply_noise(pos, &noise, 10., 500., 2.0, self.0, CHUNK_SIZE);
-            }
-
-            // TODO: fix color system depending on noise octaves later
-            // determine color based on the y-coordinate (height)
-            let colors: Vec<[f32; 4]> = positions
-                .iter()
-                .map(|[x, _, z]| {
-                    //let y = *y / terrain_height * 2.;
-                    //let y = *y/2.0 / terrain_height;
-
-                    //if y > 0.85 {
-                    // white for snow
-                    //    Color::srgba(5., 5., 5., 1.).to_linear().to_f32_array()
-                    //} else if y > 0.75 {
-                    // gray for rock
-                    //    Color::srgba(0.5, 0.5, 0.5, 1.).to_linear().to_f32_array()
-                    //} else if y > 0.35{
-                    // green for grass
-
-                    let val = (noise.get([*x as f64 / 10., *z as f64 / 10.]) / 10.) + 1.;
-
-                    (Color::srgba(0.3, 0.5, 0.2, 1.).to_linear() * val as f32).to_f32_array()
-
-                    //} else {
-                    //yellow for sand
-                    //    Color::srgba(0.8, 0.7, 0.4, 1.).to_linear().to_f32_array()
-                })
-                .collect();
-            terrain.insert_attribute(Mesh::ATTRIBUTE_COLOR, colors);
-        }
-        // calculate normals for flat shading
-        terrain.duplicate_vertices();
-        terrain.compute_flat_normals();
+        let mesh = generate_chunk_mesh(self.chunk_coords, local_subdivisions);
 
         // add the mesh to the world
         let mesh = world
             .get_resource_mut::<Assets<Mesh>>()
             .expect("meshes db to be available")
-            .add(terrain);
+            .add(mesh);
 
         let material = world
             .get_resource_mut::<Assets<StandardMaterial>>()
@@ -314,15 +280,15 @@ impl Command for SpawnTerrain {
             .get_resource_mut::<TerrainStore>()
             .expect("TerrainStore to be available")
             .0
-            .insert(self.0, mesh.clone());
+            .insert(self.chunk_coords, (mesh.clone(), local_subdivisions));
 
         world.spawn((
             Mesh3d(mesh),
             MeshMaterial3d(material),
             Transform::from_translation(Vec3::new(
-                (self.0.x as f32 * CHUNK_SIZE).round(),
+                (self.chunk_coords.x as f32 * CHUNK_SIZE).round(),
                 0.0,
-                (self.0.y as f32 * CHUNK_SIZE).round(),
+                (self.chunk_coords.y as f32 * CHUNK_SIZE).round(),
             )),
             Terrain,
         ));
@@ -338,26 +304,19 @@ fn toggle_wireframe(mut config: ResMut<WireframeConfig>, input: Res<ButtonInput<
     }
 }
 
-
 fn manage_chunks(
     mut commands: Commands,
     mut current_chunk: Local<IVec2>,
     ship: Query<&Transform, With<Ship>>,
     mut terrain_store: ResMut<TerrainStore>,
-    terrain_entities: Query<
-        (Entity, &Mesh3d),
-        With<Terrain>,
-    >,
+    terrain_entities: Query<(Entity, &Mesh3d), With<Terrain>>,
 ) {
-
     let Ok(transform) = ship.single() else {
         warn!("no ship!");
         return;
     };
 
-    let xz = (transform.translation.xz() / CHUNK_SIZE)
-        .trunc()
-        .as_ivec2();
+    let xz = (transform.translation.xz() / CHUNK_SIZE).trunc().as_ivec2();
 
     if *current_chunk != xz {
         *current_chunk = xz;
@@ -373,20 +332,16 @@ fn manage_chunks(
             }
         }
         // extract_if is perfect here, but its nightly
-        let chunks_to_despawn: Vec<(IVec2, Handle<Mesh>)> =
-            terrain_store
-                .0
-                .clone()
-                .into_iter()
-                .filter(|(key, _)| {
-                    !chunks_to_render.contains(&key)
-                })
-                .collect();
+        let chunks_to_despawn: Vec<(IVec2, Handle<Mesh>)> = terrain_store
+            .0
+            .clone()
+            .into_iter()
+            .filter(|(key, _)| !chunks_to_render.contains(&key))
+            .map(|(key, (mesh, _lod))| (key, mesh))
+            .collect();
 
         for (chunk, mesh) in chunks_to_despawn {
-            let Some((entity, _)) = terrain_entities
-                .iter()
-                .find(|(_, mesh3d)| mesh3d.0 == mesh)
+            let Some((entity, _)) = terrain_entities.iter().find(|(_, mesh3d)| mesh3d.0 == mesh)
             else {
                 continue;
             };
@@ -395,8 +350,100 @@ fn manage_chunks(
         }
 
         for chunk in chunks_to_render {
-            commands.queue(SpawnTerrain(chunk));
+            let desired_lod = get_lod(chunk, *current_chunk);
+
+            if let Some((mesh, existing_lod)) = terrain_store.0.get(&chunk) {
+                if *existing_lod != desired_lod {
+                    // Wrong LOD: despawn and regenerate
+                    if let Some((entity, _)) = terrain_entities
+                        .iter()
+                        .find(|(_, mesh3d)| mesh3d.0 == *mesh)
+                    {
+                        commands.entity(entity).despawn();
+                    }
+                    terrain_store.0.remove(&chunk);
+
+                    commands.queue(SpawnTerrain {
+                        chunk_coords: chunk,
+                        player_chunk: *current_chunk,
+                    });
+                }
+            } else {
+                // Chunk doesn't exist yet
+                commands.queue(SpawnTerrain {
+                    chunk_coords: chunk,
+                    player_chunk: *current_chunk,
+                });
+            }
         }
     }
 }
 
+fn generate_chunk_mesh(chunk_coords: IVec2, subdivisions: u32) -> Mesh {
+    let noise = Perlin::new(SEED); // create a new Perlin noise generator with the given seed
+
+    //1 unit = 1 meter
+    let mut terrain = Mesh::from(
+        Plane3d::default()
+            .mesh()
+            .size(CHUNK_SIZE, CHUNK_SIZE)
+            .subdivisions(subdivisions),
+    );
+
+    if let Some(VertexAttributeValues::Float32x3(positions)) =
+        terrain.attribute_mut(Mesh::ATTRIBUTE_POSITION)
+    {
+        // iterate over the positions and apply Perlin noise to the y-coordinate
+        for pos in positions.iter_mut() {
+            //base texture
+            apply_noise(pos, &noise, 0.5, 30., 1.0, chunk_coords, CHUNK_SIZE);
+
+            //rolling hills
+            apply_noise(pos, &noise, 10., 500., 2.0, chunk_coords, CHUNK_SIZE);
+        }
+
+        // TODO: fix color system depending on noise octaves later
+        // determine color based on the y-coordinate (height)
+        let colors: Vec<[f32; 4]> = positions
+            .iter()
+            .map(|[x, _, z]| {
+                //let y = *y / terrain_height * 2.;
+                //let y = *y/2.0 / terrain_height;
+
+                //if y > 0.85 {
+                // white for snow
+                //    Color::srgba(5., 5., 5., 1.).to_linear().to_f32_array()
+                //} else if y > 0.75 {
+                // gray for rock
+                //    Color::srgba(0.5, 0.5, 0.5, 1.).to_linear().to_f32_array()
+                //} else if y > 0.35{
+                // green for grass
+
+                let val = (noise.get([*x as f64 / 10., *z as f64 / 10.]) / 10.) + 1.;
+
+                (Color::srgba(0.3, 0.5, 0.2, 1.).to_linear() * val as f32).to_f32_array()
+
+                //} else {
+                //yellow for sand
+                //    Color::srgba(0.8, 0.7, 0.4, 1.).to_linear().to_f32_array()
+            })
+            .collect();
+        terrain.insert_attribute(Mesh::ATTRIBUTE_COLOR, colors);
+    }
+    // calculate normals for flat shading
+    terrain.duplicate_vertices();
+    terrain.compute_flat_normals();
+
+    terrain
+}
+
+fn get_lod(chunk_coords: IVec2, player_chunk: IVec2) -> u32 {
+    let distance = (chunk_coords - player_chunk).length_squared();
+    if distance <= 4 {
+        127 // High detail near the player
+    //     } else if distance <= 9 {
+    //         63
+    } else {
+        7 // Very low detail far away
+    }
+}
