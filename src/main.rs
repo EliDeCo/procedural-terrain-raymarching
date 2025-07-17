@@ -18,7 +18,8 @@ use iyes_perf_ui::prelude::*;
 use noise::{NoiseFn, Perlin};
 
 const CHUNK_SIZE: f32 = 512.; // size of each chunk in meters
-const RENDER_DISTANCE: i32 = 9; // how many chunks to render around the player
+const RENDER_DISTANCE: f32 = 6000.; //render distance in meters
+const RENDER_DISTANCE_CHUNKS: i32 = (RENDER_DISTANCE / CHUNK_SIZE) as i32; // render distance in chunks
 const PLAYER_SPEED: f32 = 100.; // speed of the player ship
 const SEED: u32 = 2007; // seed for the Perlin noise generator
 
@@ -198,10 +199,10 @@ fn spawn_heightmap(
 ) {
     //spawn the first few chunks
 
-    for x in -RENDER_DISTANCE..=RENDER_DISTANCE {
-        for y in -RENDER_DISTANCE..=RENDER_DISTANCE {
+    for x in -RENDER_DISTANCE_CHUNKS..=RENDER_DISTANCE_CHUNKS {
+        for y in -RENDER_DISTANCE_CHUNKS..=RENDER_DISTANCE_CHUNKS {
             let offset = IVec2::new(x, y);
-            if offset.length_squared() <= RENDER_DISTANCE * RENDER_DISTANCE {
+            if offset.length_squared() <= RENDER_DISTANCE_CHUNKS * RENDER_DISTANCE_CHUNKS {
                 commands.queue(SpawnTerrain::new(offset, IVec2::ZERO));
             }
         }
@@ -331,10 +332,10 @@ fn manage_chunks(
 
         let mut chunks_to_render = Vec::new();
 
-        for dx in -RENDER_DISTANCE..=RENDER_DISTANCE {
-            for dz in -RENDER_DISTANCE..=RENDER_DISTANCE {
+        for dx in -RENDER_DISTANCE_CHUNKS..=RENDER_DISTANCE_CHUNKS {
+            for dz in -RENDER_DISTANCE_CHUNKS..=RENDER_DISTANCE_CHUNKS {
                 let offset = IVec2::new(dx, dz);
-                if offset.length_squared() <= RENDER_DISTANCE * RENDER_DISTANCE {
+                if offset.length_squared() <= RENDER_DISTANCE_CHUNKS * RENDER_DISTANCE_CHUNKS {
                     chunks_to_render.push(*current_chunk + offset);
                 }
             }
@@ -407,7 +408,7 @@ fn generate_chunk_mesh(chunk_coords: IVec2, subdivisions: u32) -> Mesh {
             apply_noise(pos, &noise, 0.5, 30., 1.0, chunk_coords, CHUNK_SIZE);
 
             //rolling hills
-            apply_noise(pos, &noise, 10., 500., 2.0, chunk_coords, CHUNK_SIZE);
+            apply_noise(pos, &noise, 20., 500., 2.0, chunk_coords, CHUNK_SIZE);
         }
 
         // TODO: fix color system depending on noise octaves later
@@ -448,16 +449,18 @@ fn generate_chunk_mesh(chunk_coords: IVec2, subdivisions: u32) -> Mesh {
 fn get_lod(chunk_coords: IVec2, player_chunk: IVec2) -> u32 {
     let distance = (chunk_coords - player_chunk).length_squared();
     if distance <= 2 {
-        127 // High detail near the player
+        63 // High detail near the player
     } else if distance <= 9 {
-             63
-    } else if distance <= 25 {
              31
-    } else if distance <= 49 {
+    } else if distance <= 25 {
              15
-    } else if distance <= 64 {
+    } else if distance <= 49 {
              7
+    } else if distance <= 64 {
+             3
+    } else if distance <= 85 {
+             1
     } else {
-        3 // Very low detail far away
+        0 // Very low detail far away
     }
 }
