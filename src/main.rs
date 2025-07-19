@@ -18,7 +18,7 @@ use iyes_perf_ui::prelude::*;
 use noise::{NoiseFn, Perlin};
 
 const CHUNK_SIZE: f32 = 512.; // size of each chunk in meters
-const RENDER_DISTANCE: f32 = 6000.; //render distance in meters
+const RENDER_DISTANCE: f32 = 5000.; //render distance in meters
 const RENDER_DISTANCE_CHUNKS: i32 = (RENDER_DISTANCE / CHUNK_SIZE) as i32; // render distance in chunks
 const PLAYER_SPEED: f32 = 100.; // speed of the player ship
 const SEED: u32 = 2007; // seed for the Perlin noise generator
@@ -161,16 +161,16 @@ fn control_ship(
         direction.z -= 1.0;
     }
     if input.pressed(KeyCode::KeyA) {
-        direction.x -= 1.0;
-    }
-    if input.pressed(KeyCode::KeyD) {
         direction.x += 1.0;
     }
+    if input.pressed(KeyCode::KeyD) {
+        direction.x -= 1.0;
+    }
     if input.pressed(KeyCode::KeyQ) {
-        direction.y += 1.0;
+        direction.y -= 1.0;
     }
     if input.pressed(KeyCode::KeyE) {
-        direction.y -= 1.0;
+        direction.y += 1.0;
     }
     if direction != Vec3::ZERO {
         let movement = direction.normalize() * PLAYER_SPEED * delta.as_secs_f32();
