@@ -5,10 +5,10 @@ use bevy::{
     platform::collections::HashMap,
     prelude::*,
     render::{
+        RenderPlugin,
         mesh::VertexAttributeValues,
         render_resource::WgpuFeatures,
         settings::{RenderCreation, WgpuSettings},
-        RenderPlugin,
     },
     window::{CursorGrabMode, PresentMode, PrimaryWindow},
 };
@@ -272,8 +272,7 @@ impl Command for SpawnTerrain {
 
         let local_subdivisions = get_lod(self.chunk_coords, self.player_chunk);
 
-        let mut mesh = generate_chunk_mesh(self.chunk_coords, local_subdivisions);
-        smooth_chunk_edges(self.chunk_coords, local_subdivisions, &mut mesh, world);
+        let mesh = generate_chunk_mesh(self.chunk_coords, local_subdivisions);
 
         // add the mesh to the world
         let mesh = world
@@ -452,105 +451,16 @@ fn get_lod(chunk_coords: IVec2, player_chunk: IVec2) -> u32 {
     if distance <= 2 {
         63 // High detail near the player
     } else if distance <= 9 {
-        31
+             31
     } else if distance <= 25 {
-        15
+             15
     } else if distance <= 49 {
-        7
+             7
     } else if distance <= 64 {
-        3
+             3
     } else if distance <= 85 {
-        1
+             1
     } else {
         0 // Very low detail far away
-    }
-}
-
-#[derive(Copy, Clone)]
-enum Edge {
-    Left,
-    Right,
-    Bottom,
-    Top,
-}
-
-fn opposite(edge: Edge) -> Edge {
-    match edge {
-        Edge::Left => Edge::Right,
-        Edge::Right => Edge::Left,
-        Edge::Bottom => Edge::Top,
-        Edge::Top => Edge::Bottom,
-    }
-}
-
-fn edge_indices(subdiv: u32, edge: Edge) -> Vec<usize> {
-    let count = (subdiv + 2) as usize;
-    match edge {
-        Edge::Bottom => (0..count).collect(),
-        Edge::Top => ((count * (count - 1))..(count * count)).collect(),
-        Edge::Left => (0..count).map(|i| i * count).collect(),
-        Edge::Right => (0..count).map(|i| i * count + count - 1).collect(),
-    }
-}
-
-fn smooth_chunk_edges(chunk_coords: IVec2, subdivisions: u32, mesh: &mut Mesh, world: &World) {
-    let Some(VertexAttributeValues::Float32x3(positions)) =
-        mesh.attribute_mut(Mesh::ATTRIBUTE_POSITION)
-    else {
-        return;
-    };
-
-    let neighbors = [
-        (Edge::Left, IVec2::new(-1, 0)),
-        (Edge::Right, IVec2::new(1, 0)),
-        (Edge::Bottom, IVec2::new(0, -1)),
-        (Edge::Top, IVec2::new(0, 1)),
-    ];
-
-    for (edge, offset) in neighbors {
-        let neighbor_coord = chunk_coords + offset;
-        let Some(store) = world.get_resource::<TerrainStore>() else {
-            continue;
-        };
-        let Some((neighbor_handle, neighbor_subdiv)) = store.0.get(&neighbor_coord) else {
-            continue;
-        };
-        if *neighbor_subdiv >= subdivisions {
-            continue;
-        }
-        let Some(meshes) = world.get_resource::<Assets<Mesh>>() else {
-            continue;
-        };
-        let Some(neighbor_mesh) = meshes.get(neighbor_handle) else {
-            continue;
-        };
-        let Some(VertexAttributeValues::Float32x3(neighbor_pos)) =
-            neighbor_mesh.attribute(Mesh::ATTRIBUTE_POSITION)
-        else {
-            continue;
-        };
-
-        let my_indices = edge_indices(subdivisions, edge);
-        let neighbor_indices = edge_indices(*neighbor_subdiv, opposite(edge));
-        let neighbor_len = neighbor_indices.len();
-        let my_len = my_indices.len();
-
-        for (i, my_idx) in my_indices.iter().enumerate() {
-            let t = i as f32 / (my_len as f32 - 1.0);
-            let pos = if neighbor_len == 2 {
-                let h0 = neighbor_pos[neighbor_indices[0]][1];
-                let h1 = neighbor_pos[neighbor_indices[1]][1];
-                h0 * (1.0 - t) + h1 * t
-            } else {
-                let f_idx = t * (neighbor_len as f32 - 1.0);
-                let low = f_idx.floor() as usize;
-                let high = (low + 1).min(neighbor_len - 1);
-                let lt = f_idx - low as f32;
-                let h0 = neighbor_pos[neighbor_indices[low]][1];
-                let h1 = neighbor_pos[neighbor_indices[high]][1];
-                h0 * (1.0 - lt) + h1 * lt
-            };
-            positions[*my_idx][1] = (positions[*my_idx][1] + pos) / 2.0;
-        }
     }
 }
