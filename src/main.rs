@@ -448,19 +448,19 @@ fn generate_chunk_mesh(chunk_coords: IVec2, subdivisions: u32) -> Mesh {
 
 fn get_lod(chunk_coords: IVec2, player_chunk: IVec2) -> u32 {
     let distance = (chunk_coords - player_chunk).length_squared();
-    if distance <= 2 {
+    if distance <= 9 {
         63 // High detail near the player
-    } else if distance <= 9 {
-             31
     } else if distance <= 25 {
-             15
+             31
     } else if distance <= 49 {
-             7
+             15
     } else if distance <= 64 {
-             3
+             7
     } else if distance <= 85 {
-             1
+             3
+    //} else if distance <= 85 {
+    //         1
     } else {
-        0 // Very low detail far away
+        1 // Very low detail far away
     }
 }
