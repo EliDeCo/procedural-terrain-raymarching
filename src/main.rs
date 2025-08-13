@@ -5,12 +5,16 @@ use bevy::{
     render::{
         render_resource::WgpuFeatures, renderer::RenderAdapterInfo, settings::{Backends, RenderCreation, WgpuSettings}, view::NoIndirectDrawing, RenderPlugin
     },
-    window::{CursorGrabMode, PresentMode, PrimaryWindow},
+    window::{CursorGrabMode, PresentMode, PrimaryWindow, WindowResolution},
 };
 
 use bevy_panorbit_camera::{PanOrbitCamera, PanOrbitCameraPlugin};
 use iyes_perf_ui::prelude::*;
 //use noise::{NoiseFn, Perlin};
+const WINDOW_SCALE: f32 = 0.6;
+const WINDOW_WIDTH: f32 = 1920. * WINDOW_SCALE;
+const WINDOW_HEIGHT: f32 = 1080. * WINDOW_SCALE;
+
 
 const PLANET_RADIUS: f32 = 10.0; // in meters
 //const CHUNK_SIZE: f32 = 10.0; // in meters
@@ -22,6 +26,10 @@ fn main() {
                 .set(WindowPlugin {
                     primary_window: Some(Window {
                         present_mode: PresentMode::Immediate,
+                        title: "Planet Generator".into(),
+                        resolution: WindowResolution::new(WINDOW_WIDTH, WINDOW_HEIGHT),
+                        position: WindowPosition::Centered(MonitorSelection::Primary),
+                        resizable: false,
                         ..default()
                     }),
                     ..default()
@@ -46,6 +54,7 @@ fn main() {
         .add_plugins(bevy::render::diagnostic::RenderDiagnosticsPlugin)
         .add_plugins(PerfUiPlugin)
         .add_systems(Startup, (
+            print_display_resolution,
             setup, 
             enable_auto_indirect.after(setup), 
         ))
@@ -139,4 +148,17 @@ fn enable_auto_indirect(
             commands.entity(entity).insert(NoIndirectDrawing);
         }
      }
+}
+
+fn print_display_resolution(
+    q_window: Query<&Window, With<PrimaryWindow>>,
+) {
+    if let Ok(window) = q_window.single() {
+        let res = window.resolution.clone();
+        println!(
+            "Window size: {} x {}",
+            res.width(),
+            res.height()
+        );
+    }
 }
