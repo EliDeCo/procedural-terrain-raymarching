@@ -54,7 +54,6 @@ fn main() {
         .add_plugins(bevy::render::diagnostic::RenderDiagnosticsPlugin)
         .add_plugins(PerfUiPlugin)
         .add_systems(Startup, (
-            print_display_resolution,
             setup, 
             enable_auto_indirect.after(setup), 
         ))
