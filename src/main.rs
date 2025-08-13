@@ -486,6 +486,7 @@ fn enable_auto_indirect(
 ) {
      let is_intel = info.vendor == 0x8086 || info.vendor == 32902;
      if is_intel {
+        println!("Enabling NoIndirectDrawing for Intel GPUs to avoid issues with indirect drawing.");
         for entity in &cameras {
             commands.entity(entity).insert(NoIndirectDrawing);
         }
