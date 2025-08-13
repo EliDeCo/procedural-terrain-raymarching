@@ -5,10 +5,7 @@ use bevy::{
     platform::collections::HashMap,
     prelude::*,
     render::{
-        RenderPlugin,
-        mesh::VertexAttributeValues,
-        render_resource::WgpuFeatures,
-        settings::{RenderCreation, WgpuSettings},
+        mesh::VertexAttributeValues, render_resource::WgpuFeatures, renderer::RenderAdapterInfo, settings::{Backends, RenderCreation, WgpuSettings}, view::NoIndirectDrawing, RenderPlugin
     },
     window::{CursorGrabMode, PresentMode, PrimaryWindow},
 };
@@ -18,7 +15,7 @@ use iyes_perf_ui::prelude::*;
 use noise::{NoiseFn, Perlin};
 
 const CHUNK_SIZE: f32 = 512.; // size of each chunk in meters
-const RENDER_DISTANCE: f32 = 5000.; //render distance in meters
+const RENDER_DISTANCE: f32 = 6000.; //render distance in meters
 const RENDER_DISTANCE_CHUNKS: i32 = (RENDER_DISTANCE / CHUNK_SIZE) as i32; // render distance in chunks
 const PLAYER_SPEED: f32 = 100.; // speed of the player ship
 const SEED: u32 = 2007; // seed for the Perlin noise generator
@@ -40,10 +37,14 @@ fn main() {
                 .set(RenderPlugin {
                     render_creation: RenderCreation::Automatic(WgpuSettings {
                         features: WgpuFeatures::POLYGON_MODE_LINE,
+                        #[cfg(any(target_os = "windows", target_os = "linux"))]
+                        backends: Some(Backends::VULKAN | Backends::DX12),
+                        //backends: Some(Backends::DX12),
                         ..default()
                     }),
                     ..default()
                 }),
+
             WireframePlugin::default(),
             PanOrbitCameraPlugin,
         ))
@@ -57,7 +58,11 @@ fn main() {
         .add_plugins(bevy::diagnostic::EntityCountDiagnosticsPlugin)
         .add_plugins(bevy::render::diagnostic::RenderDiagnosticsPlugin)
         .add_plugins(PerfUiPlugin)
-        .add_systems(Startup, (setup, spawn_heightmap))
+        .add_systems(Startup, (
+            setup, 
+            enable_auto_indirect.after(setup), 
+            spawn_heightmap
+        ))
         .add_systems(
             Update,
             (
@@ -71,6 +76,9 @@ fn main() {
         .run();
 }
 
+#[derive(Resource)]
+struct ChunkMaterialHandle(Handle<StandardMaterial>);
+
 fn setup(
     mut commands: Commands,
     mut q_windows: Query<&mut Window, With<PrimaryWindow>>,
@@ -82,6 +90,7 @@ fn setup(
         Transform::from_translation(Vec3::new(0.0, 200.0, 0.0)),
         PanOrbitCamera::default(),
         ShipCam,
+        //NoIndirectDrawing,
     ));
 
     //Character stand-in
@@ -117,8 +126,12 @@ fn setup(
         PerfUiEntryFrameTime::default(),
         PerfUiEntryRenderCpuTime::default(),
         PerfUiEntryRenderGpuTime::default(),
-        PerfUiEntryEntityCount::default(),
+        PerfUiEntryEntityCount::default(),  
+
     ));
+
+    //setup global material handle
+    commands.insert_resource(ChunkMaterialHandle(materials.add(StandardMaterial {..default()})));
 }
 
 fn grab_mouse(
@@ -239,9 +252,11 @@ fn apply_noise(
 #[derive(Resource)]
 struct TerrainStore(pub HashMap<IVec2, (Handle<Mesh>, u32)>);
 
+
+
 struct SpawnTerrain {
     chunk_coords: IVec2,
-    player_chunk: IVec2, // ✅ Add this
+    player_chunk: IVec2, //
 }
 
 impl SpawnTerrain {
@@ -281,9 +296,10 @@ impl Command for SpawnTerrain {
             .add(mesh);
 
         let material = world
-            .get_resource_mut::<Assets<StandardMaterial>>()
-            .expect("StandardMaterial db to be available")
-            .add(Color::WHITE);
+            .get_resource::<ChunkMaterialHandle>()
+            .expect("ChunkMaterialHandle resource to be available")
+            .0
+            .clone();
 
         world
             .get_resource_mut::<TerrainStore>()
@@ -458,9 +474,20 @@ fn get_lod(chunk_coords: IVec2, player_chunk: IVec2) -> u32 {
              7
     } else if distance <= 85 {
              3
-    //} else if distance <= 85 {
-    //         1
     } else {
         1 // Very low detail far away
     }
+}
+
+fn enable_auto_indirect(
+    info: Res<RenderAdapterInfo>,
+    mut commands: Commands,
+    cameras: Query<Entity, With<PanOrbitCamera>>,
+) {
+     let is_intel = info.vendor == 0x8086 || info.vendor == 32902;
+     if is_intel {
+        for entity in &cameras {
+            commands.entity(entity).insert(NoIndirectDrawing);
+        }
+     }
 }
