@@ -10,13 +10,14 @@ use bevy::{
 
 use bevy_panorbit_camera::{PanOrbitCamera, PanOrbitCameraPlugin};
 use iyes_perf_ui::prelude::*;
-//use noise::{NoiseFn, Perlin};
+
+mod terrain;
+mod data_structures;
+
 const WINDOW_SCALE: f32 = 0.6;
 const WINDOW_WIDTH: f32 = 1920. * WINDOW_SCALE;
 const WINDOW_HEIGHT: f32 = 1080. * WINDOW_SCALE;
 
-
-const PLANET_RADIUS: f32 = 10.0; // in meters
 //const CHUNK_SIZE: f32 = 10.0; // in meters
 fn main() {
     App::new()
@@ -54,9 +55,10 @@ fn main() {
         .add_plugins(bevy::render::diagnostic::RenderDiagnosticsPlugin)
         .add_plugins(PerfUiPlugin)
         .add_systems(Startup, (
-            print_display_resolution,
+            //print_display_resolution,
             setup, 
-            enable_auto_indirect.after(setup), 
+            enable_auto_indirect.after(setup),
+            terrain::generate_planet, 
         ))
         .add_systems(
             Update,
@@ -107,12 +109,6 @@ fn setup(
         PerfUiEntryRenderGpuTime::default(),
         PerfUiEntryEntityCount::default(),  
 
-    ));
-
-    // spawn basic cube
-    commands.spawn((
-        Mesh3d(meshes.add(Cuboid::new(PLANET_RADIUS, PLANET_RADIUS, PLANET_RADIUS))),
-        MeshMaterial3d(materials.add(Color::srgb(0.8, 0.5, 0.3))),
     ));
 
 }
