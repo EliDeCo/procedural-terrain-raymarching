@@ -140,21 +140,9 @@ fn enable_auto_indirect(
 ) {
      let is_intel = info.vendor == 0x8086 || info.vendor == 32902;
      if is_intel {
+        println!("Enabling NoIndirectDrawing for Intel GPUs to avoid issues with indirect drawing.");
         for entity in &cameras {
             commands.entity(entity).insert(NoIndirectDrawing);
         }
      }
-}
-
-fn print_display_resolution(
-    q_window: Query<&Window, With<PrimaryWindow>>,
-) {
-    if let Ok(window) = q_window.single() {
-        let res = window.resolution.clone();
-        println!(
-            "Window size: {} x {}",
-            res.width(),
-            res.height()
-        );
-    }
 }
