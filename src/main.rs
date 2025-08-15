@@ -1,7 +1,7 @@
 use std::f32::consts::FRAC_PI_4;
 
 use bevy::{
-    gizmos::config, pbr::wireframe::{Wireframe, WireframeConfig, WireframePlugin}, prelude::*, render::{
+    pbr::wireframe::{WireframeConfig, WireframePlugin}, prelude::*, render::{
         render_resource::WgpuFeatures, renderer::RenderAdapterInfo, settings::{Backends, RenderCreation, WgpuSettings}, view::NoIndirectDrawing, RenderPlugin
     }, window::{CursorGrabMode, PresentMode, PrimaryWindow, WindowResolution}
 };
@@ -159,6 +159,6 @@ fn toggle_wireframe(
 ) {
     if key.just_pressed(KeyCode::Space) {
         config.global = !config.global;
-        info!("Wireframe mode: {}", if config.global { "ON" } else { "OFF" });
+        //info!("Wireframe mode: {}", if config.global { "ON" } else { "OFF" });
     }
 }

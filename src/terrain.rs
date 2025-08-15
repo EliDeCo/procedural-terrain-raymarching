@@ -1,4 +1,4 @@
-use std::f32::consts::SQRT_2;
+//use std::f32::consts::{SQRT_2};
 use bevy::{
     prelude::*,
     render::mesh::VertexAttributeValues,
@@ -7,12 +7,13 @@ use bevy::{
 //use crate::data_structures::*;
 
 
-const PLANET_RADIUS: f32 = 8.0; // in meters
-const PREFERRED_CHUNK_SIZE: f32 = 3.; // in meters on the flat cube face
-const CHUNK_SUBDIVISIONS: u32 = 0; // number of subdivisions per chunk
+const PLANET_RADIUS: f32 = 64.0; // in meters
+const PREFERRED_CHUNK_SIZE: f32 = 16.; // in meters on the flat cube face
+const CHUNK_SUBDIVISIONS: u32 = 7; // number of subdivisions per chunk
 
-
-const CUBE_SIZE: f32 = PLANET_RADIUS * SQRT_2; // side length of the cube that will become the planet
+const SQRT_3: f32 = 1.7320508075688772; // sqrt(3) for convenience
+const CUBE_SIZE: f32 = 2.*PLANET_RADIUS / SQRT_3; // side length of the cube that will become the planet
+const HALF: f32 = CUBE_SIZE / 2.0; // half the size of the cube
 const CHUNKS_PER_FACE: u32 = (CUBE_SIZE / PREFERRED_CHUNK_SIZE) as u32; // number of chunks along one edge of a cube face
 const ACTUAL_CHUNK_SIZE: f32 = CUBE_SIZE / CHUNKS_PER_FACE as f32; // actual size of each chunk
 
@@ -44,6 +45,7 @@ pub fn generate_planet(
     for dir in [Vec3::Y, Vec3::X, Vec3::Z,Vec3::NEG_Y, Vec3::NEG_X, Vec3::NEG_Z] {
         for x in 0..CHUNKS_PER_FACE {
             for y in 0..CHUNKS_PER_FACE {
+                //if y == 2 { continue;}
                 let mesh = generate_chunk_mesh(dir, Vec2::new(x as f32, y as f32), CHUNK_SUBDIVISIONS);
                 // spawn the chunk mesh with the material
                 commands.spawn((
@@ -79,13 +81,19 @@ fn generate_chunk_mesh(direction: Vec3, coords: Vec2, subdivisions: u32) -> Mesh
     let y_offset = (coords.y - half + 0.5) * ACTUAL_CHUNK_SIZE;
 
     let transform = Transform {
-        translation: direction*(CUBE_SIZE/2.) + rel_x*x_offset + rel_y*y_offset,
+        translation: direction*(HALF) + rel_x*x_offset + rel_y*y_offset,
         rotation: rotation,
         ..default()
     };
 
     // bake the cube transform into the mesh vertices
     bake_rigid_transform(&mut mesh, transform);
+
+    // back the spherical transform
+    bake_spherical_transform(&mut mesh);
+
+    mesh.duplicate_vertices();
+    mesh.compute_flat_normals();
 
     mesh
 }
@@ -97,12 +105,15 @@ fn bake_rigid_transform(mesh: &mut Mesh, transform: Transform) {
         }
     }
 }
-/* 
-fn bake_spherical_transform(mesh: &mut Mesh, rel_x: Vec3, rel_y: Vec3, rel_z: Vec3) {
+
+// Convert the cube vertices to a spherical surface
+fn bake_spherical_transform(mesh: &mut Mesh) {
     if let Some(VertexAttributeValues::Float32x3(positions)) = mesh.attribute_mut(Mesh::ATTRIBUTE_POSITION) {
         for pos in positions {
 
+            // takes the vector pointing from the center of the cube and extends it to the planet radius
+            *pos = (Vec3::from_array(*pos).normalize() * PLANET_RADIUS).to_array();
+           
         }
     }
 }
-    */
