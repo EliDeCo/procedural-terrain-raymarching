@@ -1,11 +1,9 @@
 use std::f32::consts::FRAC_PI_4;
 
 use bevy::{
-    prelude::*,
-    render::{
+    gizmos::config, pbr::wireframe::{Wireframe, WireframeConfig, WireframePlugin}, prelude::*, render::{
         render_resource::WgpuFeatures, renderer::RenderAdapterInfo, settings::{Backends, RenderCreation, WgpuSettings}, view::NoIndirectDrawing, RenderPlugin
-    },
-    window::{CursorGrabMode, PresentMode, PrimaryWindow, WindowResolution},
+    }, window::{CursorGrabMode, PresentMode, PrimaryWindow, WindowResolution}
 };
 
 use bevy_panorbit_camera::{PanOrbitCamera, PanOrbitCameraPlugin};
@@ -48,6 +46,15 @@ fn main() {
         ))
         //sky color
         .insert_resource(ClearColor(Color::srgb(0.53, 0.81, 0.92)))
+        //wireframe
+        .add_plugins(WireframePlugin {..default()})
+        .insert_resource(WireframeConfig {
+            global: false,
+            ..default()
+        })
+
+
+        //diagnostics
         .add_plugins(bevy::diagnostic::FrameTimeDiagnosticsPlugin::default())
         .add_plugins(bevy::diagnostic::EntityCountDiagnosticsPlugin)
         .add_plugins(bevy::render::diagnostic::RenderDiagnosticsPlugin)
@@ -62,6 +69,7 @@ fn main() {
             Update,
             (
                 grab_mouse,
+                toggle_wireframe,
             ),
         )
         .run();
@@ -143,4 +151,14 @@ fn enable_auto_indirect(
             commands.entity(entity).insert(NoIndirectDrawing);
         }
      }
+}
+
+fn toggle_wireframe(
+    key: Res<ButtonInput<KeyCode>>,
+    mut config: ResMut<WireframeConfig>,
+) {
+    if key.just_pressed(KeyCode::Space) {
+        config.global = !config.global;
+        info!("Wireframe mode: {}", if config.global { "ON" } else { "OFF" });
+    }
 }

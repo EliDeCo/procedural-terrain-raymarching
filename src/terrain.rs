@@ -9,7 +9,7 @@ use bevy::{
 
 const PLANET_RADIUS: f32 = 8.0; // in meters
 const PREFERRED_CHUNK_SIZE: f32 = 3.; // in meters on the flat cube face
-const CHUNK_SUBDIVISIONS: u32 = 4; // number of subdivisions per chunk
+const CHUNK_SUBDIVISIONS: u32 = 0; // number of subdivisions per chunk
 
 
 const CUBE_SIZE: f32 = PLANET_RADIUS * SQRT_2; // side length of the cube that will become the planet
