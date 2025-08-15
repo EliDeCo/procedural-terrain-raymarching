@@ -7,15 +7,18 @@ use bevy::{
 //use crate::data_structures::*;
 
 
-const PLANET_RADIUS: f32 = 64.0; // in meters
-const PREFERRED_CHUNK_SIZE: f32 = 16.; // in meters on the flat cube face
-const CHUNK_SUBDIVISIONS: u32 = 7; // number of subdivisions per chunk
+pub const PLANET_RADIUS: f32 = 5_000.; // in meters
+const PREFERRED_CHUNK_SIZE: f32 = 512.; // in meters
+const PREFERRED_SUBDIVISION_SIZE: f32 = 32.; // in meters
+
+
 
 const SQRT_3: f32 = 1.7320508075688772; // sqrt(3) for convenience
 const CUBE_SIZE: f32 = 2.*PLANET_RADIUS / SQRT_3; // side length of the cube that will become the planet
 const HALF: f32 = CUBE_SIZE / 2.0; // half the size of the cube
-const CHUNKS_PER_FACE: u32 = (CUBE_SIZE / PREFERRED_CHUNK_SIZE) as u32; // number of chunks along one edge of a cube face
-const ACTUAL_CHUNK_SIZE: f32 = CUBE_SIZE / CHUNKS_PER_FACE as f32; // actual size of each chunk
+const CHUNKS_PER_EDGE: u32 = (CUBE_SIZE / PREFERRED_CHUNK_SIZE) as u32; // number of chunks along one edge of a cube face
+const ACTUAL_CHUNK_SIZE: f32 = CUBE_SIZE / CHUNKS_PER_EDGE as f32; // actual size of each chunk
+const CHUNK_SUBDIVISIONS: u32 = (ACTUAL_CHUNK_SIZE / PREFERRED_SUBDIVISION_SIZE) as u32 - 1; // number of subdivisions in each chunk
 
 pub fn generate_planet(
     mut commands: Commands,
@@ -38,13 +41,15 @@ pub fn generate_planet(
     });
 
     info!("CUBE_SIZE: {}", CUBE_SIZE);
-    info!("CHUNKS_PER_FACE: {}", CHUNKS_PER_FACE);
+    info!("CHUNKS_PER_EDGE: {}", CHUNKS_PER_EDGE);
     info!("ACTUAL_CHUNK_SIZE: {}", ACTUAL_CHUNK_SIZE);
+    info!("CHUNK_SUBDIVISIONS: {}", CHUNK_SUBDIVISIONS);
+    info!("ACTUAL SUBDIVISION SIZE: {}", ACTUAL_CHUNK_SIZE/(CHUNK_SUBDIVISIONS as f32+1.));
 
 
     for dir in [Vec3::Y, Vec3::X, Vec3::Z,Vec3::NEG_Y, Vec3::NEG_X, Vec3::NEG_Z] {
-        for x in 0..CHUNKS_PER_FACE {
-            for y in 0..CHUNKS_PER_FACE {
+        for x in 0..CHUNKS_PER_EDGE {
+            for y in 0..CHUNKS_PER_EDGE {
                 //if y == 2 { continue;}
                 let mesh = generate_chunk_mesh(dir, Vec2::new(x as f32, y as f32), CHUNK_SUBDIVISIONS);
                 // spawn the chunk mesh with the material
@@ -76,7 +81,7 @@ fn generate_chunk_mesh(direction: Vec3, coords: Vec2, subdivisions: u32) -> Mesh
     let rel_y = (rotation * Vec3::Z).normalize();
 
     // use the coordinates to find the offset for the chunk
-    let half: f32 = CHUNKS_PER_FACE as f32 / 2.0;
+    let half: f32 = CHUNKS_PER_EDGE as f32 / 2.0;
     let x_offset = (coords.x - half  + 0.5) * ACTUAL_CHUNK_SIZE;
     let y_offset = (coords.y - half + 0.5) * ACTUAL_CHUNK_SIZE;
 
@@ -117,3 +122,14 @@ fn bake_spherical_transform(mesh: &mut Mesh) {
         }
     }
 }
+
+
+
+
+
+//---------For inverse mapping
+//Dormalize player coords (we just need the direction, not the distance)
+//Find the largest value of the player coordinates. For example, y is the largest and it's positive, then the player is on the top face of the cube
+//Find the local coordinates by scaling the player direction until it reaches the edge of the cube face
+//find chunk coordinates by undoing offset calculations and rounding (the inverse of let x_offset = (coords.x - half  + 0.5) * ACTUAL_CHUNK_SIZE;))
+//calculate horizon angle and use it to determine which chunks are visible

@@ -83,7 +83,7 @@ fn setup(
 ) {
     // camera
     commands.spawn((
-        Transform::from_translation(Vec3::new(0.0, 200.0, 0.0)),
+        Transform::from_translation(Vec3::new(terrain::PLANET_RADIUS*2., terrain::PLANET_RADIUS*2., terrain::PLANET_RADIUS*2.)),
         PanOrbitCamera::default(),
         //NoIndirectDrawing,
     ));
