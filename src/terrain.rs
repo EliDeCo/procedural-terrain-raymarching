@@ -1,9 +1,10 @@
 use std::f32::consts::SQRT_2;
 use bevy::{
-    ecs::world, prelude::*
+    prelude::*,
+    render::mesh::VertexAttributeValues,
 };
 
-use crate::data_structures::*;
+//use crate::data_structures::*;
 
 
 const PLANET_RADIUS: f32 = 8.0; // in meters
@@ -43,11 +44,12 @@ pub fn generate_planet(
     for dir in [Vec3::Y, Vec3::X, Vec3::Z,Vec3::NEG_Y, Vec3::NEG_X, Vec3::NEG_Z] {
         for x in 0..CHUNKS_PER_FACE {
             for y in 0..CHUNKS_PER_FACE {
-                let (mesh, transform) = generate_chunk_mesh(dir, Vec2::new(x as f32, y as f32), CHUNK_SUBDIVISIONS);
+                let mesh = generate_chunk_mesh(dir, Vec2::new(x as f32, y as f32), CHUNK_SUBDIVISIONS);
+                // spawn the chunk mesh with the material
                 commands.spawn((
                     Mesh3d(meshes.add(mesh)),
                     MeshMaterial3d(planet_material.clone()),
-                    transform,
+                    //transform,
                 ));
             }
         }
@@ -57,8 +59,9 @@ pub fn generate_planet(
 
 }
 
-fn generate_chunk_mesh(direction: Vec3, coords: Vec2, subdivisions: u32) -> (Mesh, Transform) {
-    let mesh = Mesh::from(
+
+fn generate_chunk_mesh(direction: Vec3, coords: Vec2, subdivisions: u32) -> Mesh {
+    let mut mesh = Mesh::from(
         Plane3d::default()
             .mesh()
             .size(ACTUAL_CHUNK_SIZE, ACTUAL_CHUNK_SIZE)
@@ -81,5 +84,25 @@ fn generate_chunk_mesh(direction: Vec3, coords: Vec2, subdivisions: u32) -> (Mes
         ..default()
     };
 
-    (mesh, transform)
+    // bake the cube transform into the mesh vertices
+    bake_rigid_transform(&mut mesh, transform);
+
+    mesh
 }
+
+fn bake_rigid_transform(mesh: &mut Mesh, transform: Transform) {
+    if let Some(VertexAttributeValues::Float32x3(positions)) = mesh.attribute_mut(Mesh::ATTRIBUTE_POSITION) {
+        for pos in positions {
+            *pos = transform.transform_point(Vec3::from_array(*pos)).to_array();
+        }
+    }
+}
+/* 
+fn bake_spherical_transform(mesh: &mut Mesh, rel_x: Vec3, rel_y: Vec3, rel_z: Vec3) {
+    if let Some(VertexAttributeValues::Float32x3(positions)) = mesh.attribute_mut(Mesh::ATTRIBUTE_POSITION) {
+        for pos in positions {
+
+        }
+    }
+}
+    */

@@ -12,13 +12,11 @@ use bevy_panorbit_camera::{PanOrbitCamera, PanOrbitCameraPlugin};
 use iyes_perf_ui::prelude::*;
 
 mod terrain;
-mod data_structures;
 
 const WINDOW_SCALE: f32 = 0.6;
 const WINDOW_WIDTH: f32 = 1920. * WINDOW_SCALE;
 const WINDOW_HEIGHT: f32 = 1080. * WINDOW_SCALE;
 
-//const CHUNK_SIZE: f32 = 10.0; // in meters
 fn main() {
     App::new()
         .add_plugins((
@@ -72,8 +70,8 @@ fn main() {
 fn setup(
     mut commands: Commands,
     mut q_windows: Query<&mut Window, With<PrimaryWindow>>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    //mut meshes: ResMut<Assets<Mesh>>,
+    //mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     // camera
     commands.spawn((
