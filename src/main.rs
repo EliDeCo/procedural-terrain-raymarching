@@ -14,7 +14,12 @@ use iyes_perf_ui::prelude::*;
 
 use constructs::*;
 
+use crate::terrain::PLANET_RADIUS;
+
 const WINDOW_SCALE: f32 = 0.6;
+const MOVE_SPEED: f32 = 50.; // m/s
+
+
 const WINDOW_WIDTH: f32 = 1920. * WINDOW_SCALE;
 const WINDOW_HEIGHT: f32 = 1080. * WINDOW_SCALE;
 
@@ -74,6 +79,7 @@ fn main() {
                 grab_mouse,
                 toggle_wireframe,
                 follow_cam,
+                player_move,
             ),
         )
         .run();
@@ -125,8 +131,8 @@ fn setup(
     commands.spawn((
         Mesh3d(meshes.add(Cuboid::new(1., 2., 1.))),
         MeshMaterial3d(materials.add(Color::srgb(0.2, 0.5, 0.3))),
-        Transform::from_xyz(0., terrain::PLANET_RADIUS, 0.),
-        Player
+        Transform::from_xyz(0., PLANET_RADIUS+1., 0.),
+        Player{facing: Vec3::NEG_X},
     ));
 
 
@@ -186,4 +192,63 @@ fn follow_cam(
             pan_orbit.force_update = true;
         }
     }
+}
+
+fn player_move(
+    time: Res<Time>,
+    keys: Res<ButtonInput<KeyCode>>,
+    mut player_q: Query<(&mut Player, &mut Transform)>
+) {
+    if let Ok((mut player, mut player_transform)) = player_q.single_mut() {
+        
+        let mut pos = player_transform.translation;
+
+
+        let up = pos.normalize();
+        let forward = player.facing;
+        let right = forward.cross(up);
+        
+        let mut input = Vec2::ZERO;
+        if keys.pressed(KeyCode::KeyW) { input.y += 1.0; }
+        if keys.pressed(KeyCode::KeyS) { input.y -= 1.0; }
+        if keys.pressed(KeyCode::KeyD) { input.x += 1.0; }
+        if keys.pressed(KeyCode::KeyA) { input.x -= 1.0; }
+        input = input.normalize();
+
+        let move_direction = (right * input.x + forward * input.y).normalize();
+
+        //rotate around this axis to simulate movement
+        let axis = up.cross(move_direction).normalize();
+        let axis_len = axis.length();
+
+        //prevents NAN issues when no input is given
+        if axis_len > 1e-6 {
+            let axis_n = axis / axis_len;
+            let angle = (MOVE_SPEED * time.delta_secs()) / (PLANET_RADIUS);
+            let rotation = Quat::from_axis_angle(axis_n, angle);
+            pos = rotation * pos;
+
+            //make sure we remain on the surface of the planet (corrects any floating point errors)
+            pos = pos.normalize() * (PLANET_RADIUS+1.);
+
+            //update position
+            player_transform.translation = pos;
+
+            //update rotation
+            let up = pos.normalize();
+            player_transform.rotation = Quat::from_rotation_arc(Vec3::Y, up);
+            player.facing = up.cross(right);
+
+        }
+
+        
+
+        
+
+
+    }
+
+
+
+    
 }
