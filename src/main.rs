@@ -71,6 +71,7 @@ fn main() {
             //print_display_resolution,
             setup, 
             enable_auto_indirect.after(setup),
+            //terrain::generate_planet,
         ))
         .add_systems(
             Update,
@@ -79,7 +80,7 @@ fn main() {
                 toggle_wireframe,
                 follow_cam,
                 player_move,
-                terrain::generate_planet,
+                terrain::manage_chunks,
             ),
         )
         .run();
