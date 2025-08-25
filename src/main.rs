@@ -1,3 +1,6 @@
+mod terrain;
+mod constructs;
+
 use std::f32::consts::FRAC_PI_4;
 
 use bevy::{
@@ -9,7 +12,7 @@ use bevy::{
 use bevy_panorbit_camera::{PanOrbitCamera, PanOrbitCameraPlugin};
 use iyes_perf_ui::prelude::*;
 
-mod terrain;
+use constructs::*;
 
 const WINDOW_SCALE: f32 = 0.6;
 const WINDOW_WIDTH: f32 = 1920. * WINDOW_SCALE;
@@ -70,6 +73,7 @@ fn main() {
             (
                 grab_mouse,
                 toggle_wireframe,
+                follow_cam,
             ),
         )
         .run();
@@ -78,8 +82,8 @@ fn main() {
 fn setup(
     mut commands: Commands,
     mut q_windows: Query<&mut Window, With<PrimaryWindow>>,
-    //mut meshes: ResMut<Assets<Mesh>>,
-    //mut materials: ResMut<Assets<StandardMaterial>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     // camera
     commands.spawn((
@@ -116,6 +120,15 @@ fn setup(
         PerfUiEntryEntityCount::default(),  
 
     ));
+
+    //Player mockup
+    commands.spawn((
+        Mesh3d(meshes.add(Cuboid::new(1., 2., 1.))),
+        MeshMaterial3d(materials.add(Color::srgb(0.2, 0.5, 0.3))),
+        Transform::from_xyz(0., terrain::PLANET_RADIUS, 0.),
+        Player
+    ));
+
 
 }
 
@@ -160,5 +173,17 @@ fn toggle_wireframe(
     if key.just_pressed(KeyCode::Space) {
         config.global = !config.global;
         //info!("Wireframe mode: {}", if config.global { "ON" } else { "OFF" });
+    }
+}
+
+fn follow_cam(
+    mut pan_orbit_q: Query<&mut PanOrbitCamera>,
+    player_q: Query<&Transform, With<Player>>
+) {
+    if let Ok(mut pan_orbit) = pan_orbit_q.single_mut() {
+        if let Ok(player) = player_q.single() {
+            pan_orbit.target_focus = player.translation;
+            pan_orbit.force_update = true;
+        }
     }
 }
