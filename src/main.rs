@@ -4,7 +4,7 @@ mod constructs;
 use std::f32::consts::FRAC_PI_4;
 
 use bevy::{
-    pbr::wireframe::{WireframeConfig, WireframePlugin}, prelude::*, render::{
+    pbr::wireframe::{WireframeConfig, WireframePlugin}, prelude::*, reflect::Array, render::{
         render_resource::WgpuFeatures, renderer::RenderAdapterInfo, settings::{Backends, RenderCreation, WgpuSettings}, view::NoIndirectDrawing, RenderPlugin
     }, window::{CursorGrabMode, PresentMode, PrimaryWindow, WindowResolution}
 };
@@ -93,8 +93,13 @@ fn setup(
 ) {
     // camera
     commands.spawn((
-        Transform::from_translation(Vec3::new(terrain::PLANET_RADIUS*2., terrain::PLANET_RADIUS*2., terrain::PLANET_RADIUS*2.)),
-        PanOrbitCamera::default(),
+        //Transform::from_translation(Vec3::new(terrain::PLANET_RADIUS*2., terrain::PLANET_RADIUS*2., terrain::PLANET_RADIUS*2.)),
+        PanOrbitCamera {
+            allow_upside_down: true,
+            radius: Some(50.),
+            axis: [Vec3::X, Vec3::Y, Vec3::NEG_Z],
+            ..default()
+        },
         //NoIndirectDrawing,
     ));
 
@@ -132,7 +137,7 @@ fn setup(
         Mesh3d(meshes.add(Cuboid::new(1., 2., 1.))),
         MeshMaterial3d(materials.add(Color::srgb(0.2, 0.5, 0.3))),
         Transform::from_xyz(0., PLANET_RADIUS+1., 0.),
-        Player{facing: Vec3::NEG_X},
+        Player{facing: Vec3::NEG_Z},
     ));
 
 
@@ -187,9 +192,24 @@ fn follow_cam(
     player_q: Query<&Transform, With<Player>>
 ) {
     if let Ok(mut pan_orbit) = pan_orbit_q.single_mut() {
-        if let Ok(player) = player_q.single() {
-            pan_orbit.target_focus = player.translation;
+        if let Ok(player_transform) = player_q.single() {
+            let pos = player_transform.translation;
+            
+            //lock camera on player position
+            pan_orbit.target_focus = pos;
+            
+
+            //rotation
+            /* 
+            let rot = player_transform.rotation;
+            let forward =  rot * Vec3::NEG_Z;
+            let up = rot * Vec3::Y;
+            let right =  rot * Vec3::X;
+            pan_orbit.axis = [right,up,forward];
+            */
+
             pan_orbit.force_update = true;
+
         }
     }
 }
@@ -197,7 +217,7 @@ fn follow_cam(
 fn player_move(
     time: Res<Time>,
     keys: Res<ButtonInput<KeyCode>>,
-    mut player_q: Query<(&mut Player, &mut Transform)>
+    mut player_q: Query<(&mut Player, &mut Transform)>,
 ) {
     if let Ok((mut player, mut player_transform)) = player_q.single_mut() {
         
@@ -205,9 +225,14 @@ fn player_move(
 
 
         let up = pos.normalize();
-        let forward = player.facing;
-        let right = forward.cross(up);
+        //re-tangent and normalize (basically made sure player.facing is actually perpendicular to up)
+        let forward = (player.facing - up * player.facing.dot(up)).normalize();
+        let right = forward.cross(up).normalize();
         
+
+        
+        println!("DET: {}", right.cross(up).dot(forward));
+
         let mut input = Vec2::ZERO;
         if keys.pressed(KeyCode::KeyW) { input.y += 1.0; }
         if keys.pressed(KeyCode::KeyS) { input.y -= 1.0; }
@@ -218,7 +243,7 @@ fn player_move(
         let move_direction = (right * input.x + forward * input.y).normalize();
 
         //rotate around this axis to simulate movement
-        let axis = up.cross(move_direction).normalize();
+        let axis = up.cross(move_direction);
         let axis_len = axis.length();
 
         //prevents NAN issues when no input is given
@@ -234,17 +259,15 @@ fn player_move(
             //update position
             player_transform.translation = pos;
 
-            //update rotation
+            //update rotation (via redefining up and forward)
             let up = pos.normalize();
-            player_transform.rotation = Quat::from_rotation_arc(Vec3::Y, up);
-            player.facing = up.cross(right);
+            let forward = (player.facing - up * player.facing.dot(up)).normalize();
+
+            player_transform.look_to(forward, up);
+
+            player.facing = forward;
 
         }
-
-        
-
-        
-
 
     }
 

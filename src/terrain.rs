@@ -7,9 +7,9 @@ use bevy::{
 //use crate::data_structures::*;
 
 
-pub const PLANET_RADIUS: f32 = 100.; // in meters
-const PREFERRED_CHUNK_SIZE: f32 = 20.; // in meters
-const PREFERRED_SUBDIVISION_SIZE: f32 = 1.; // in meters
+pub const PLANET_RADIUS: f32 = 50_000.; // in meters
+const PREFERRED_CHUNK_SIZE: f32 = 1_000.; // in meters
+const PREFERRED_SUBDIVISION_SIZE: f32 = 1_000.; // in meters
 
 
 
