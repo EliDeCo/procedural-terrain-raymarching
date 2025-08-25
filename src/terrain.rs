@@ -5,11 +5,11 @@ use bevy::{
 };
 
 //use crate::data_structures::*;
+use crate::constructs::*;
 
-
-pub const PLANET_RADIUS: f32 = 50_000.; // in meters
-const PREFERRED_CHUNK_SIZE: f32 = 1_000.; // in meters
-const PREFERRED_SUBDIVISION_SIZE: f32 = 1_000.; // in meters
+pub const PLANET_RADIUS: f32 = 20.; // in meters
+const PREFERRED_CHUNK_SIZE: f32 = 5.; // in meters
+const PREFERRED_SUBDIVISION_SIZE: f32 = 5.; // in meters
 
 
 
@@ -24,6 +24,7 @@ pub fn generate_planet(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    player_q: Query<&Transform, With<Player>>,
 ) {
 
 // spawn basic cube
@@ -40,13 +41,14 @@ pub fn generate_planet(
         ..default()
     });
 
+    /* 
     info!("CUBE_SIZE: {}", CUBE_SIZE);
     info!("CHUNKS_PER_EDGE: {}", CHUNKS_PER_EDGE);
     info!("ACTUAL_CHUNK_SIZE: {}", ACTUAL_CHUNK_SIZE);
     info!("CHUNK_SUBDIVISIONS: {}", CHUNK_SUBDIVISIONS);
     info!("ACTUAL SUBDIVISION SIZE: {}", ACTUAL_CHUNK_SIZE/(CHUNK_SUBDIVISIONS as f32+1.));
-
-
+    */
+    /* 
     for dir in [Vec3::Y, Vec3::X, Vec3::Z,Vec3::NEG_Y, Vec3::NEG_X, Vec3::NEG_Z] {
         for x in 0..CHUNKS_PER_EDGE {
             for y in 0..CHUNKS_PER_EDGE {
@@ -61,6 +63,19 @@ pub fn generate_planet(
             }
         }
     }
+    */
+    if let Ok(player_transform) = player_q.single() {
+        let (dir, coords) = get_chunk_coords(player_transform.translation);
+        println!("DIRECTION: {}", dir);
+        let mesh = generate_chunk_mesh(dir, Vec2::new(2., 2.),CHUNK_SUBDIVISIONS);
+        commands.spawn((
+        Mesh3d(meshes.add(mesh)),
+        MeshMaterial3d(planet_material.clone()),
+        ));
+    }
+
+
+    
 
 
 
@@ -133,3 +148,27 @@ fn bake_spherical_transform(mesh: &mut Mesh) {
 //Find the local coordinates by scaling the player direction until it reaches the edge of the cube face
 //find chunk coordinates by undoing offset calculations and rounding (the inverse of let x_offset = (coords.x - half  + 0.5) * ACTUAL_CHUNK_SIZE;))
 //calculate horizon angle and use it to determine which chunks are visible
+
+//takes in the current player location in 3D and returns the direction and cooresponding chunk coords
+fn get_chunk_coords(coords: Vec3) -> (Vec3, Vec2) {
+
+    let a = coords.abs();
+    let largest = a.x.max(a.y).max(a.z);
+    let direction: Vec3 = if largest == coords.x {
+        Vec3::X
+    } else if largest == -coords.x {
+        Vec3::NEG_X
+    } else if largest == coords.y {
+        Vec3::Y
+    } else if largest == -coords.y {
+        Vec3::NEG_Y
+    } else if largest == coords.z {
+        Vec3::Z
+    } else if largest == -coords.z {
+        Vec3::NEG_Z
+    } else {
+        panic!("What!?!?")
+    };
+
+    return (direction, Vec2::ZERO);
+}

@@ -4,7 +4,7 @@ mod constructs;
 use std::f32::consts::FRAC_PI_4;
 
 use bevy::{
-    pbr::wireframe::{WireframeConfig, WireframePlugin}, prelude::*, reflect::Array, render::{
+    pbr::wireframe::{WireframeConfig, WireframePlugin}, prelude::*, render::{
         render_resource::WgpuFeatures, renderer::RenderAdapterInfo, settings::{Backends, RenderCreation, WgpuSettings}, view::NoIndirectDrawing, RenderPlugin
     }, window::{CursorGrabMode, PresentMode, PrimaryWindow, WindowResolution}
 };
@@ -71,7 +71,6 @@ fn main() {
             //print_display_resolution,
             setup, 
             enable_auto_indirect.after(setup),
-            terrain::generate_planet, 
         ))
         .add_systems(
             Update,
@@ -80,6 +79,7 @@ fn main() {
                 toggle_wireframe,
                 follow_cam,
                 player_move,
+                terrain::generate_planet,
             ),
         )
         .run();
@@ -231,7 +231,7 @@ fn player_move(
         
 
         
-        println!("DET: {}", right.cross(up).dot(forward));
+        //println!("DET: {}", right.cross(up).dot(forward));
 
         let mut input = Vec2::ZERO;
         if keys.pressed(KeyCode::KeyW) { input.y += 1.0; }
