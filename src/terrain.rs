@@ -3,6 +3,8 @@ use bevy::{
     prelude::*,
     render::mesh::VertexAttributeValues,
 };
+use std::collections::HashSet;
+
 
 //use crate::data_structures::*;
 use crate::constructs::*;
@@ -20,76 +22,25 @@ const CHUNKS_PER_EDGE: u32 = (CUBE_SIZE / PREFERRED_CHUNK_SIZE) as u32; // numbe
 const ACTUAL_CHUNK_SIZE: f32 = CUBE_SIZE / CHUNKS_PER_EDGE as f32; // actual size of each chunk
 const CHUNK_SUBDIVISIONS: u32 = (ACTUAL_CHUNK_SIZE / PREFERRED_SUBDIVISION_SIZE) as u32 - 1; // number of subdivisions in each chunk
 
-pub fn generate_planet(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    //player_q: Query<&Transform, With<Player>>,
-) {
-
-// spawn basic cube
-    //commands.spawn((
-    //    Mesh3d(meshes.add(Cuboid::new(5., 5., 5.))),
-    //    MeshMaterial3d(materials.add(Color::srgb(0.8, 0.5, 0.3)))
-    //));
-
-    // create planet material
-    let planet_material = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.8, 0.5, 0.3),
-        perceptual_roughness: 0.5,
-        metallic: 0.5,
-        ..default()
-    });
-
-    
+pub fn display_info() {  
     info!("CUBE_SIZE: {}", CUBE_SIZE);
     info!("CHUNKS_PER_EDGE: {}", CHUNKS_PER_EDGE);
     info!("ACTUAL_CHUNK_SIZE: {}", ACTUAL_CHUNK_SIZE);
     info!("CHUNK_SUBDIVISIONS: {}", CHUNK_SUBDIVISIONS);
     info!("ACTUAL SUBDIVISION SIZE: {}", ACTUAL_CHUNK_SIZE/(CHUNK_SUBDIVISIONS as f32+1.));
-    
-    
-    for dir in [Vec3::Y, Vec3::X, Vec3::Z,Vec3::NEG_Y, Vec3::NEG_X, Vec3::NEG_Z] {
-        for x in 0..CHUNKS_PER_EDGE {
-            for y in 0..CHUNKS_PER_EDGE {
-                //if y == 2 { continue;}
-                let mesh = generate_chunk_mesh(dir, Vec2::new(x as f32, y as f32), CHUNK_SUBDIVISIONS);
-                // spawn the chunk mesh with the material
-                commands.spawn((
-                    Mesh3d(meshes.add(mesh)),
-                    MeshMaterial3d(planet_material.clone()),
-                    //transform,
-                ));
-            }
-        }
-    }
-    
-    /* 
-    if let Ok(player_transform) = player_q.single() {
-        let (dir, coords) = get_chunk_coords(player_transform.translation);
-        println!("DIRECTION: {}", dir);
-        let mesh = generate_chunk_mesh(dir, Vec2::new(2., 2.),CHUNK_SUBDIVISIONS);
-        commands.spawn((
-        Mesh3d(meshes.add(mesh)),
-        MeshMaterial3d(planet_material.clone()),
-        ));
-    }
-    */
-
-    
-
-
-
 }
 
 
-fn generate_chunk_mesh(direction: Vec3, coords: Vec2, subdivisions: u32) -> Mesh {
+fn generate_chunk_mesh(direction: IVec3, coords: IVec2, subdivisions: u32) -> Mesh {
     let mut mesh = Mesh::from(
         Plane3d::default()
             .mesh()
             .size(ACTUAL_CHUNK_SIZE, ACTUAL_CHUNK_SIZE)
             .subdivisions(subdivisions),
     );
+
+    let direction = Vec3::new(direction.x as f32, direction.y as f32, direction.z as f32);
+
     // get the rotation to align the chunk with the given face direction
     let rotation = Quat::from_rotation_arc(Vec3::Y, direction);
     // get the relative x and y (horizontal and vertical) axes on the given chunk face
@@ -98,8 +49,8 @@ fn generate_chunk_mesh(direction: Vec3, coords: Vec2, subdivisions: u32) -> Mesh
 
     // use the coordinates to find the offset for the chunk
     let half: f32 = CHUNKS_PER_EDGE as f32 / 2.0;
-    let x_offset = (coords.x - half + 0.5) * ACTUAL_CHUNK_SIZE;
-    let y_offset = (coords.y - half + 0.5) * ACTUAL_CHUNK_SIZE;
+    let x_offset = (coords.x as f32 - half + 0.5) * ACTUAL_CHUNK_SIZE;
+    let y_offset = (coords.y as f32 - half + 0.5) * ACTUAL_CHUNK_SIZE;
     
 
     let transform = Transform {
@@ -152,7 +103,7 @@ fn bake_spherical_transform(mesh: &mut Mesh) {
 //calculate horizon angle and use it to determine which chunks are visible
 
 //takes in the current player location in 3D and returns the direction and cooresponding chunk coords
-fn get_chunk_coords(coords: Vec3) -> (Vec3, Vec2) {
+fn get_chunk_coords(coords: Vec3) -> (IVec3, IVec2) {
 
     let a = coords.abs();
     let largest = a.x.max(a.y).max(a.z);
@@ -172,13 +123,10 @@ fn get_chunk_coords(coords: Vec3) -> (Vec3, Vec2) {
         panic!("What!?!?")
     };
 
-    //let rotation = Quat::from_rotation_arc(Vec3::Y, direction);
-    //let rel_x = (rotation * Vec3::X).normalize();
-    //let rel_y = (rotation * Vec3::Z).normalize();
 
     //Get 3D location where the line that intersects the player passes through a chunk (when it was still on the flat cube face)
     let parallel_component = coords.dot(direction);
-    let distance = (HALF) / parallel_component;
+    let distance = HALF / parallel_component;
     let face_projection = coords * distance;
 
     //get relative coordinate data
@@ -193,47 +141,61 @@ fn get_chunk_coords(coords: Vec3) -> (Vec3, Vec2) {
 
 
     let half: f32 = CHUNKS_PER_EDGE as f32 / 2.0;
-    let chunk_coords = Vec2::new(
-        ((x_offset / ACTUAL_CHUNK_SIZE) + half - 0.5).round(),
-        ((y_offset / ACTUAL_CHUNK_SIZE) + half - 0.5).round(),
+    let chunk_coords = IVec2::new(
+        ((x_offset / ACTUAL_CHUNK_SIZE) + half - 0.5).round() as i32,
+        ((y_offset / ACTUAL_CHUNK_SIZE) + half - 0.5).round() as i32,
     );
 
-    //let y_offset = (coords.y - half + 0.5) * ACTUAL_CHUNK_SIZE;
-
-    //println!("FACE PROJECTION: {}", face_projection);
+    let direction = IVec3::new(direction.x as i32, direction.y as i32, direction.z as i32);
 
     return (direction, chunk_coords);
 }
 
 //TODO: Make global material
+//Handles drawing and deleting chunks as necessary
 pub fn manage_chunks(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    //mut materials: ResMut<Assets<StandardMaterial>>,
     player_q: Query<&Transform, With<Player>>,
+    mut rendered: ResMut<RenderedChunks>,
+    planet_material: Res<PlanetMaterial>,
 ) {
+    //USE INSERT
     if let Ok(player_transform) = player_q.single() {
-        let (direction, chunk_coords) = get_chunk_coords(player_transform.translation);
+        //let (direction, chunk_coords) = get_chunk_coords(player_transform.translation);
 
         //println!("Chunk COORDS: {}", chunk_coords)
 
-    let planet_material = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.8, 0.5, 0.3),
-        perceptual_roughness: 0.5,
-        metallic: 0.5,
-        ..default()
+        let to_render = assign_chunks(player_transform.translation);
+
+        
+
+        for chunk in to_render {
+            if rendered.set.insert(chunk.clone()) {
+                let for_handle = chunk.clone();
+                let handle = meshes.add(generate_chunk_mesh(for_handle.direction, for_handle.coords, CHUNK_SUBDIVISIONS));
+                commands.spawn((
+                    Mesh3d(handle),
+                    MeshMaterial3d(planet_material.0.clone()),
+                ));
+            }
+        }
+    }
+}
+
+//assigns visible chunks to be rendered
+fn assign_chunks(player_coords: Vec3) -> HashSet<ChunkKey> {
+    let (direction, chunk_coords) = get_chunk_coords(player_coords);
+
+    let mut to_render: HashSet<ChunkKey> = HashSet::new();
+    //let handle = meshes.add(generate_chunk_mesh(direction, chunk_coords, CHUNK_SUBDIVISIONS));
+
+    to_render.insert(ChunkKey{
+        direction: direction,
+        coords: chunk_coords,
+        //mesh_handle: handle,
     });
 
-    let mesh = generate_chunk_mesh(direction, chunk_coords, CHUNK_SUBDIVISIONS);
-    //let mesh = generate_chunk_mesh(direction, Vec2::new(-1., -1.), CHUNK_SUBDIVISIONS);
-
-    // spawn the chunk mesh with the material
-    commands.spawn((
-        Mesh3d(meshes.add(mesh)),
-        MeshMaterial3d(planet_material.clone()),
-    ));
-
-    }
-
-
+    to_render
 }

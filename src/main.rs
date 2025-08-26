@@ -52,6 +52,8 @@ fn main() {
                 }),
             PanOrbitCameraPlugin,
         ))
+        //stores chunks that are currently displayed
+        .init_resource::<RenderedChunks>()
         //sky color
         .insert_resource(ClearColor(Color::srgb(0.53, 0.81, 0.92)))
         //wireframe
@@ -68,10 +70,9 @@ fn main() {
         .add_plugins(bevy::render::diagnostic::RenderDiagnosticsPlugin)
         .add_plugins(PerfUiPlugin)
         .add_systems(Startup, (
-            //print_display_resolution,
             setup, 
             enable_auto_indirect.after(setup),
-            //terrain::generate_planet,
+            terrain::display_info,
         ))
         .add_systems(
             Update,
@@ -141,7 +142,8 @@ fn setup(
         Player{facing: Vec3::NEG_Z},
     ));
 
-
+    //setup global material handle
+    commands.insert_resource(PlanetMaterial(materials.add(StandardMaterial {..default()})));
 }
 
 fn grab_mouse(
