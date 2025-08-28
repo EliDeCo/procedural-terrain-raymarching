@@ -8,7 +8,7 @@ use std::collections::HashSet;
 //use crate::data_structures::*;
 use crate::constructs::*;
 
-pub const PLANET_RADIUS: f32 = 25.; // in meters
+pub const PLANET_RADIUS: f32 = 100.; // in meters
 const PREFERRED_CHUNK_SIZE: f32 = 4.; // in meters
 const PREFERRED_SUBDIVISION_SIZE: f32 = 4.; // in meters
 
@@ -191,8 +191,8 @@ fn assign_chunks(player_coords: Vec3) -> HashSet<ChunkKey> {
     let player_chunk = get_chunk_key(player_coords);
 
     /* */
-    for x in -2..=2 {
-        for y in -2..=2 {
+    for x in -8..=8 {
+        for y in -8..=8 {
             to_render.insert(
                 player_to_global(&player_chunk, ivec2(x, y))
             );
@@ -207,14 +207,13 @@ fn assign_chunks(player_coords: Vec3) -> HashSet<ChunkKey> {
 fn player_to_global(player: &ChunkKey, relative_coords: IVec2) -> ChunkKey {
 
     let mut point = *player;
-    let mut distance = relative_coords;
-    /* 
+    let mut distance = relative_coords; 
     //continuesouly loop trying to bring distance to zero, wrapping sides if necessary
     while distance.x != 0 {
         if distance.x > 0 { // if we need to move in the positive x direction
             if point.coords.x < (CHUNKS_PER_EDGE as i32 -1) { //if we can move in the positive x direction without leaving this face
                 point.coords.x += 1; //move the chunk over by 1 in the x direction
-                distance -= 1;
+                distance.x -= 1;
             } else { //we need to wrap to the next face
                 let (direction, rel_x, rel_y) = face_axes(point.direction);
                 wrap(rel_x, rel_y, direction, &mut point, &mut distance, true);
@@ -223,7 +222,7 @@ fn player_to_global(player: &ChunkKey, relative_coords: IVec2) -> ChunkKey {
         } else { //we need to move in the negative x direction
            if point.coords.x > 0 { //if we can move in the negative x direction without leaving this face
                 point.coords.x -= 1; //move the chunk over by 1 in the negative x direction
-                distance += 1;
+                distance.x += 1;
             } else { //we need to wrap to the next face
                 let (direction, rel_x, rel_y) = face_axes(point.direction);
                 wrap(-rel_x, rel_y, direction, &mut point, &mut distance, true);
@@ -231,12 +230,11 @@ fn player_to_global(player: &ChunkKey, relative_coords: IVec2) -> ChunkKey {
             } 
         }
     }
-    */
     while distance.y != 0 {
         if distance.y > 0 { // if we need to move in the positive y direction
             if point.coords.y < (CHUNKS_PER_EDGE as i32 -1) { //if we can move in the positive y direction without leaving this face
                 point.coords.y += 1; //move the chunk over by 1 in the y direction
-                distance -= 1;
+                distance.y -= 1;
             } else { //we need to wrap to the next face
                 let (direction, rel_x, rel_y) = face_axes(point.direction);
                 wrap(rel_y, rel_x, direction, &mut point, &mut distance, false);
@@ -245,7 +243,7 @@ fn player_to_global(player: &ChunkKey, relative_coords: IVec2) -> ChunkKey {
         } else { //we need to move in the negative y direction
            if point.coords.y > 0 { //if we can move in the negative y direction without leaving this face
                 point.coords.y -= 1; //move the chunk over by 1 in the negative y direction
-                distance += 1;
+                distance.y += 1;
             } else { //we need to wrap to the next face
                 let (direction, rel_x, rel_y) = face_axes(point.direction);
                 wrap(-rel_y, rel_x, direction, &mut point, &mut distance, false);
