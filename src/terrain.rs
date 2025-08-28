@@ -5,11 +5,10 @@ use bevy::{
 };
 use std::collections::HashSet;
 
-
 //use crate::data_structures::*;
 use crate::constructs::*;
 
-pub const PLANET_RADIUS: f32 = 20.; // in meters
+pub const PLANET_RADIUS: f32 = 25.; // in meters
 const PREFERRED_CHUNK_SIZE: f32 = 4.; // in meters
 const PREFERRED_SUBDIVISION_SIZE: f32 = 4.; // in meters
 
@@ -100,10 +99,9 @@ fn bake_spherical_transform(mesh: &mut Mesh) {
 //Find the largest value of the player coordinates. For example, y is the largest and it's positive, then the player is on the top face of the cube
 //Find the local coordinates by scaling the player direction until it reaches the edge of the cube face
 //find chunk coordinates by undoing offset calculations and rounding (the inverse of let x_offset = (coords.x - half  + 0.5) * ACTUAL_CHUNK_SIZE;))
-//calculate horizon angle and use it to determine which chunks are visible
 
-//takes in the current player location in 3D and returns the direction and cooresponding chunk coords
-fn get_chunk_coords(coords: Vec3) -> (IVec3, IVec2) {
+//takes in the current player location in 3D and returns a Chunkkey direction and cooresponding chunk coords
+fn get_chunk_key(coords: Vec3) -> ChunkKey {
 
     let a = coords.abs();
     let largest = a.x.max(a.y).max(a.z);
@@ -148,10 +146,15 @@ fn get_chunk_coords(coords: Vec3) -> (IVec3, IVec2) {
 
     let direction = IVec3::new(direction.x as i32, direction.y as i32, direction.z as i32);
 
-    return (direction, chunk_coords);
+    ChunkKey {
+        direction: direction,
+        coords: chunk_coords
+    }
 }
 
-//TODO: Make global material
+
+
+
 //Handles drawing and deleting chunks as necessary
 pub fn manage_chunks(
     mut commands: Commands,
@@ -186,16 +189,86 @@ pub fn manage_chunks(
 
 //assigns visible chunks to be rendered
 fn assign_chunks(player_coords: Vec3) -> HashSet<ChunkKey> {
-    let (direction, chunk_coords) = get_chunk_coords(player_coords);
+    //let key = get_chunk_key(player_coords);
+    
 
     let mut to_render: HashSet<ChunkKey> = HashSet::new();
     //let handle = meshes.add(generate_chunk_mesh(direction, chunk_coords, CHUNK_SUBDIVISIONS));
 
-    to_render.insert(ChunkKey{
-        direction: direction,
-        coords: chunk_coords,
-        //mesh_handle: handle,
-    });
+    let player_chunk = get_chunk_key(player_coords);
+
+    /* */
+    for x in -2..=2 {
+        for y in -2..=2 {
+            to_render.insert(
+                player_to_global(&player_chunk, ivec2(x, y))
+            );
+        }
+    }
+
+
+    //to_render.insert(key);
 
     to_render
 }
+
+//converts from chunk coordinates centered around the player (treating the sphere surface as a flat plane) to a ChunkKey
+fn player_to_global(player: &ChunkKey, relative_coords: IVec2) -> ChunkKey {
+
+    //get the current face
+    //let dir = Vec3::new(player.direction.x as f32, player.direction.y as f32, player.direction.z as f32);
+    // get the rotation to align the chunk with the given face direction
+   // let rot = Quat::from_rotation_arc(Vec3::Y, dir);
+    // get the relative x and y (horizontal and vertical) axes on the given chunk face
+    //let rel_x = (rotation * Vec3::X).normalize();
+    //let rel_y = (rotation * Vec3::Z).normalize();
+
+    
+    let total_x = player.coords.x + relative_coords.x;
+    let total_y = player.coords.y + relative_coords.y;
+    //if the chunk remains on the current face, calculations are trivial
+    if 0 <= total_x && 0 <= total_y && total_x <= (CHUNKS_PER_EDGE-1) as i32 && total_y <= (CHUNKS_PER_EDGE-1) as i32 {
+        return ChunkKey {
+            direction: player.direction,
+            coords: IVec2::new(total_x, total_y)
+        }
+    } 
+
+    let dir = Vec3::new(player.direction.x as f32, player.direction.y as f32, player.direction.z as f32);
+    let rot = Quat::from_rotation_arc(Vec3::Y, dir);
+    // get the relative x and y (horizontal and vertical) axes on the given chunk face
+    let face_x = (rot * Vec3::X).normalize();
+    //let face_y = (rot * Vec3::Z).normalize();
+    let height = (rot * Vec3::Y).normalize();
+
+    //if the x value overflows positively it wraps to the next side
+    if total_x >= (CHUNKS_PER_EDGE as i32) {
+        let offset = ((total_x as u32 - CHUNKS_PER_EDGE + 1) as f32 - 0.5) * ACTUAL_CHUNK_SIZE;
+        
+        //                      Increment down depending on how many chunks we need to traverse          
+        //                 To the top edge of that face |                              |
+        //  To the face to the right  V                 V                              V                    Project to sphere
+        let otherside = ((face_x * HALF) + (height * (HALF - offset))).normalize() * PLANET_RADIUS;
+
+        return get_chunk_key(otherside);
+    }
+
+    return ChunkKey::default();
+}
+
+/* 
+//finds the 3D coordinates of the center of the given chunk
+fn find3D(x: i32, y: i32, dir: Vec3, rel_x: Vec3, rel_y: Vec3) -> Vec3 {
+
+    // use the coordinates to find the offset for the chunk
+    let half: f32 = CHUNKS_PER_EDGE as f32 / 2.0;
+    let x_offset = (x as f32 - half + 0.5) * ACTUAL_CHUNK_SIZE;
+    let y_offset = (y as f32 - half + 0.5) * ACTUAL_CHUNK_SIZE;
+    
+    //find the coordinates of the center of the chunk on the surface of the cube
+    let on_cube = dir*HALF + rel_x*x_offset + rel_y*y_offset;
+
+    //morph to sphere
+    on_cube.normalize() * PLANET_RADIUS
+}
+*/

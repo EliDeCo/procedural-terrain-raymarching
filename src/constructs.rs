@@ -9,7 +9,7 @@ pub struct Player{
 #[derive(Resource, Clone)]
 pub struct PlanetMaterial(pub Handle<StandardMaterial>);
 
-#[derive(Debug, Default, PartialEq, Eq, Hash, Clone)]
+#[derive(Debug, Default, PartialEq, Eq, Hash, Clone, Copy)]
 pub struct ChunkKey {
     pub direction: IVec3,
     pub coords: IVec2,
