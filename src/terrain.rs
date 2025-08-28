@@ -215,46 +215,33 @@ fn assign_chunks(player_coords: Vec3) -> HashSet<ChunkKey> {
 //converts from chunk coordinates centered around the player (treating the sphere surface as a flat plane) to a ChunkKey
 fn player_to_global(player: &ChunkKey, relative_coords: IVec2) -> ChunkKey {
 
-    //get the current face
-    //let dir = Vec3::new(player.direction.x as f32, player.direction.y as f32, player.direction.z as f32);
-    // get the rotation to align the chunk with the given face direction
-   // let rot = Quat::from_rotation_arc(Vec3::Y, dir);
-    // get the relative x and y (horizontal and vertical) axes on the given chunk face
-    //let rel_x = (rotation * Vec3::X).normalize();
-    //let rel_y = (rotation * Vec3::Z).normalize();
+    let mut point = *player;
+    let mut distance = relative_coords;
 
-    
-    let total_x = player.coords.x + relative_coords.x;
-    let total_y = player.coords.y + relative_coords.y;
-    //if the chunk remains on the current face, calculations are trivial
-    if 0 <= total_x && 0 <= total_y && total_x <= (CHUNKS_PER_EDGE-1) as i32 && total_y <= (CHUNKS_PER_EDGE-1) as i32 {
-        return ChunkKey {
-            direction: player.direction,
-            coords: IVec2::new(total_x, total_y)
+    //continuesouly loop trying to bring distance to zero, wrapping sides if necessary
+    while distance.x != 0 {
+        if distance.x > 0 { // if we need to move in the positive x direction
+            if point.coords.x < (CHUNKS_PER_EDGE as i32 -1) { //if we can move in the positive x direction without leaving this face
+                point.coords.x += 1; //move the chunk over by 1 in the x direction
+                distance -= 1;
+            } else { //we need to wrap to the next face
+                break
+            }
+        } else { //we need to move in the negative x direction
+           if point.coords.x > 0 { //if we can move in the negative x direction without leaving this face
+                point.coords.x -= 1; //move the chunk over by  1 in the negative x direction
+                distance += 1;
+            } else { //we need to wrap to the next face
+                break
+            } 
         }
-    } 
-
-    let dir = Vec3::new(player.direction.x as f32, player.direction.y as f32, player.direction.z as f32);
-    let rot = Quat::from_rotation_arc(Vec3::Y, dir);
-    // get the relative x and y (horizontal and vertical) axes on the given chunk face
-    let face_x = (rot * Vec3::X).normalize();
-    //let face_y = (rot * Vec3::Z).normalize();
-    let height = (rot * Vec3::Y).normalize();
-
-    //if the x value overflows positively it wraps to the next side
-    if total_x >= (CHUNKS_PER_EDGE as i32) {
-        let offset = ((total_x as u32 - CHUNKS_PER_EDGE + 1) as f32 - 0.5) * ACTUAL_CHUNK_SIZE;
-        
-        //                      Increment down depending on how many chunks we need to traverse          
-        //                 To the top edge of that face |                              |
-        //  To the face to the right  V                 V                              V                    Project to sphere
-        let otherside = ((face_x * HALF) + (height * (HALF - offset))).normalize() * PLANET_RADIUS;
-
-        return get_chunk_key(otherside);
     }
 
-    return ChunkKey::default();
+    return point;
 }
+
+//transitions to another side so steps can continue
+
 
 /* 
 //finds the 3D coordinates of the center of the given chunk
