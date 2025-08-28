@@ -217,6 +217,7 @@ fn player_to_global(player: &ChunkKey, relative_coords: IVec2) -> ChunkKey {
                 distance -= 1;
             } else { //we need to wrap to the next face
                 break
+                //TODO: BUILD THIS
                 //let (direction, rel_x, _) = face_axes(point.direction);
                 //wrap(direction, rel_x, &mut point, &mut distance);
             }
