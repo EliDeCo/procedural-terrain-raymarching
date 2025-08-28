@@ -191,8 +191,8 @@ fn assign_chunks(player_coords: Vec3) -> HashSet<ChunkKey> {
     let player_chunk = get_chunk_key(player_coords);
 
     /* */
-    for x in -8..=8 {
-        for y in -8..=8 {
+    for x in -10..=10 {
+        for y in -10..=10 {
             to_render.insert(
                 player_to_global(&player_chunk, ivec2(x, y))
             );
@@ -265,9 +265,9 @@ fn wrap(main: Vec3, other: Vec3, face: Vec3, chunk: &mut ChunkKey, target: &mut 
     //get the chunkkey for the flipped chunk and  update the value
     *chunk = get_chunk_key(flipped.normalize() * PLANET_RADIUS);
 
-    //get the relative coordinates for the next face
-    //let (direction, rel_x, rel_y) = face_axes(to_ivec3(main));
-    //change the target as necessary
+    //change the basis between faces
+    let (old_dir, old_x, old_y) = face_axes(to_ivec3(face));
+    let (new_dir, new_x, new_y) = face_axes(to_ivec3(main));
     
 }
 
