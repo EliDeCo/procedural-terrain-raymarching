@@ -38,13 +38,10 @@ fn generate_chunk_mesh(direction: IVec3, coords: IVec2, subdivisions: u32) -> Me
             .subdivisions(subdivisions),
     );
 
-    let direction = Vec3::new(direction.x as f32, direction.y as f32, direction.z as f32);
-
+    //get the axis relative to the current face
+    let (direction, rel_x, rel_y) = face_axes(direction);
     // get the rotation to align the chunk with the given face direction
     let rotation = Quat::from_rotation_arc(Vec3::Y, direction);
-    // get the relative x and y (horizontal and vertical) axes on the given chunk face
-    let rel_x = (rotation * Vec3::X).normalize();
-    let rel_y = (rotation * Vec3::Z).normalize();
 
     // use the coordinates to find the offset for the chunk
     let half: f32 = CHUNKS_PER_EDGE as f32 / 2.0;
@@ -106,31 +103,29 @@ fn get_chunk_key(coords: Vec3) -> ChunkKey {
     let a = coords.abs();
     let largest = a.x.max(a.y).max(a.z);
     let direction = if largest == coords.x {
-        Vec3::X
+        IVec3::X
     } else if largest == -coords.x {
-        Vec3::NEG_X
+        IVec3::NEG_X
     } else if largest == coords.y {
-        Vec3::Y
+        IVec3::Y
     } else if largest == -coords.y {
-        Vec3::NEG_Y
+       IVec3::NEG_Y
     } else if largest == coords.z {
-        Vec3::Z
+        IVec3::Z
     } else if largest == -coords.z {
-        Vec3::NEG_Z
+        IVec3::NEG_Z
     } else {
         panic!("What!?!?")
     };
 
 
+    //get relative coordinate data
+    let (direction, rel_x, rel_y) = face_axes(direction);
+
     //Get 3D location where the line that intersects the player passes through a chunk (when it was still on the flat cube face)
     let parallel_component = coords.dot(direction);
     let distance = HALF / parallel_component;
     let face_projection = coords * distance;
-
-    //get relative coordinate data
-    let rotation = Quat::from_rotation_arc(Vec3::Y, direction);
-    let rel_x = (rotation * Vec3::X).normalize();
-    let rel_y = (rotation * Vec3::Z).normalize();
 
 
     //opposite of calculations used to find 3D coordinates from chunkcoords
@@ -144,7 +139,7 @@ fn get_chunk_key(coords: Vec3) -> ChunkKey {
         ((y_offset / ACTUAL_CHUNK_SIZE) + half - 0.5).round() as i32,
     );
 
-    let direction = IVec3::new(direction.x as i32, direction.y as i32, direction.z as i32);
+    let direction = to_ivec3(direction);
 
     ChunkKey {
         direction: direction,
@@ -170,10 +165,11 @@ pub fn manage_chunks(
 
         //println!("Chunk COORDS: {}", chunk_coords)
 
+        //get the list of chunks to be rendered
         let to_render = assign_chunks(player_transform.translation);
 
         
-
+        //if the chunk is not already rendered, render it
         for chunk in to_render {
             if rendered.set.insert(chunk.clone()) {
                 let for_handle = chunk.clone();
@@ -189,11 +185,8 @@ pub fn manage_chunks(
 
 //assigns visible chunks to be rendered
 fn assign_chunks(player_coords: Vec3) -> HashSet<ChunkKey> {
-    //let key = get_chunk_key(player_coords);
-    
 
     let mut to_render: HashSet<ChunkKey> = HashSet::new();
-    //let handle = meshes.add(generate_chunk_mesh(direction, chunk_coords, CHUNK_SUBDIVISIONS));
 
     let player_chunk = get_chunk_key(player_coords);
 
@@ -206,8 +199,6 @@ fn assign_chunks(player_coords: Vec3) -> HashSet<ChunkKey> {
         }
     }
 
-
-    //to_render.insert(key);
 
     to_render
 }
@@ -226,6 +217,8 @@ fn player_to_global(player: &ChunkKey, relative_coords: IVec2) -> ChunkKey {
                 distance -= 1;
             } else { //we need to wrap to the next face
                 break
+                //let (direction, rel_x, _) = face_axes(point.direction);
+                //wrap(direction, rel_x, &mut point, &mut distance);
             }
         } else { //we need to move in the negative x direction
            if point.coords.x > 0 { //if we can move in the negative x direction without leaving this face
@@ -240,22 +233,33 @@ fn player_to_global(player: &ChunkKey, relative_coords: IVec2) -> ChunkKey {
     return point;
 }
 
-//transitions to another side so steps can continue
+//wraps from one face to another and modifies the chunk and targest coordinates accordingly
+fn wrap(start: Vec3, end: Vec3, chunk: &mut ChunkKey, target: &mut IVec2) {
 
-
-/* 
-//finds the 3D coordinates of the center of the given chunk
-fn find3D(x: i32, y: i32, dir: Vec3, rel_x: Vec3, rel_y: Vec3) -> Vec3 {
-
-    // use the coordinates to find the offset for the chunk
-    let half: f32 = CHUNKS_PER_EDGE as f32 / 2.0;
-    let x_offset = (x as f32 - half + 0.5) * ACTUAL_CHUNK_SIZE;
-    let y_offset = (y as f32 - half + 0.5) * ACTUAL_CHUNK_SIZE;
-    
-    //find the coordinates of the center of the chunk on the surface of the cube
-    let on_cube = dir*HALF + rel_x*x_offset + rel_y*y_offset;
-
-    //morph to sphere
-    on_cube.normalize() * PLANET_RADIUS
 }
-*/
+
+//calculate the local axis of a given face
+fn face_axes(direction: IVec3) -> (Vec3, Vec3, Vec3) {
+    // Face normal as unit Vec3
+    let dir = Vec3::new(direction.x as f32, direction.y as f32, direction.z as f32).normalize();
+    // Rotate +Y (plane normal) onto face normal
+    let rot = Quat::from_rotation_arc(Vec3::Y, dir);
+    // Tangent axes on that face
+    let rel_x = (rot * Vec3::X).normalize();
+    let rel_y = (rot * Vec3::Z).normalize();
+    (dir, rel_x, rel_y)
+}
+
+//convert Vec3 to Ivec3
+fn to_ivec3(input: Vec3) -> IVec3 {IVec3::new(input.x as i32, input.y as i32, input.z as i32)}
+
+//given a chunk, it finds the 3D coordinates of its center
+fn chunk_center_on_cube(chunk: ChunkKey) -> Vec3 {
+    let (dir, rel_x, rel_y) = face_axes(chunk.direction);
+
+    let half: f32 = CHUNKS_PER_EDGE as f32 / 2.0;
+    let x_offset = (chunk.coords.x as f32 - half + 0.5) * ACTUAL_CHUNK_SIZE;
+    let y_offset = (chunk.coords.y as f32 - half + 0.5) * ACTUAL_CHUNK_SIZE;
+
+    (dir * HALF) + (rel_x * x_offset) + (rel_y * y_offset)
+}
