@@ -1,7 +1,7 @@
 //use std::f32::consts::{SQRT_2};
 use bevy::{
     prelude::*,
-    render::mesh::VertexAttributeValues,
+    render::{mesh::VertexAttributeValues, sync_world::RenderEntity},
 };
 use std::collections::HashSet;
 
@@ -9,8 +9,8 @@ use std::collections::HashSet;
 use crate::constructs::*;
 
 pub const PLANET_RADIUS: f32 = 100.; // in meters
-const PREFERRED_CHUNK_SIZE: f32 = 4.; // in meters
-const PREFERRED_SUBDIVISION_SIZE: f32 = 4.; // in meters
+const PREFERRED_CHUNK_SIZE: f32 = 10.; // in meters
+const PREFERRED_SUBDIVISION_SIZE: f32 = 10.; // in meters
 
 
 
@@ -158,6 +158,7 @@ pub fn manage_chunks(
     player_q: Query<&Transform, With<Player>>,
     mut rendered: ResMut<RenderedChunks>,
     planet_material: Res<PlanetMaterial>,
+    all_chunks: Query<(Entity, &Chunk)>,
 ) {
     //USE INSERT
     if let Ok(player_transform) = player_q.single() {
@@ -168,8 +169,19 @@ pub fn manage_chunks(
         //get the list of chunks to be rendered
         let to_render = assign_chunks(player_transform.translation);
 
-        
-        //if the chunk is not already rendered, render it
+        //remove chunks that are now out of range or do not have the correct LOD(not included in to_render)
+        let original = rendered.set.clone();
+        for chunk in original {
+            if !to_render.contains(&chunk) {
+                //remove the given chunk
+                if let Some((entity, _)) = all_chunks.iter().find(|(_, key)| key.0 == chunk) {
+                    commands.entity(entity).despawn();
+                    rendered.set.remove(&chunk);
+                }
+            }
+        }
+
+        //if the chunk is not already rendered (or needs to be rerendered with a different LOD), render it
         for chunk in to_render {
             if rendered.set.insert(chunk.clone()) {
                 let for_handle = chunk.clone();
@@ -177,6 +189,7 @@ pub fn manage_chunks(
                 commands.spawn((
                     Mesh3d(handle),
                     MeshMaterial3d(planet_material.0.clone()),
+                    Chunk(for_handle),
                 ));
             }
         }
@@ -190,9 +203,11 @@ fn assign_chunks(player_coords: Vec3) -> HashSet<ChunkKey> {
 
     let player_chunk = get_chunk_key(player_coords);
 
+    let render: i32 = 3;
+
     /* */
-    for x in -10..=10 {
-        for y in -10..=10 {
+    for x in -render..=render {
+        for y in -render..=render {
             to_render.insert(
                 player_to_global(&player_chunk, ivec2(x, y))
             );
@@ -215,8 +230,8 @@ fn player_to_global(player: &ChunkKey, relative_coords: IVec2) -> ChunkKey {
                 point.coords.x += 1; //move the chunk over by 1 in the x direction
                 distance.x -= 1;
             } else { //we need to wrap to the next face
-                let (direction, rel_x, rel_y) = face_axes(point.direction);
-                wrap(rel_x, rel_y, direction, &mut point, &mut distance, true);
+                let (direction, rel_x, _) = face_axes(point.direction);
+                wrap(rel_x, direction, &mut point, &mut distance);
                 distance.x -= 1;
             }
         } else { //we need to move in the negative x direction
@@ -224,8 +239,8 @@ fn player_to_global(player: &ChunkKey, relative_coords: IVec2) -> ChunkKey {
                 point.coords.x -= 1; //move the chunk over by 1 in the negative x direction
                 distance.x += 1;
             } else { //we need to wrap to the next face
-                let (direction, rel_x, rel_y) = face_axes(point.direction);
-                wrap(-rel_x, rel_y, direction, &mut point, &mut distance, true);
+                let (direction, rel_x, _) = face_axes(point.direction);
+                wrap(-rel_x, direction, &mut point, &mut distance);
                 distance.x += 1;
             } 
         }
@@ -236,8 +251,8 @@ fn player_to_global(player: &ChunkKey, relative_coords: IVec2) -> ChunkKey {
                 point.coords.y += 1; //move the chunk over by 1 in the y direction
                 distance.y -= 1;
             } else { //we need to wrap to the next face
-                let (direction, rel_x, rel_y) = face_axes(point.direction);
-                wrap(rel_y, rel_x, direction, &mut point, &mut distance, false);
+                let (direction, _, rel_y) = face_axes(point.direction);
+                wrap(rel_y,  direction, &mut point, &mut distance, );
                 distance.y -= 1;
             }
         } else { //we need to move in the negative y direction
@@ -245,8 +260,8 @@ fn player_to_global(player: &ChunkKey, relative_coords: IVec2) -> ChunkKey {
                 point.coords.y -= 1; //move the chunk over by 1 in the negative y direction
                 distance.y += 1;
             } else { //we need to wrap to the next face
-                let (direction, rel_x, rel_y) = face_axes(point.direction);
-                wrap(-rel_y, rel_x, direction, &mut point, &mut distance, false);
+                let (direction, _, rel_y) = face_axes(point.direction);
+                wrap(-rel_y, direction, &mut point, &mut distance);
                 distance.y += 1;
             } 
         }
@@ -256,7 +271,7 @@ fn player_to_global(player: &ChunkKey, relative_coords: IVec2) -> ChunkKey {
 }
 
 //wraps from one face to another and modifies the chunk and targest coordinates accordingly
-fn wrap(main: Vec3, other: Vec3, face: Vec3, chunk: &mut ChunkKey, target: &mut IVec2, x: bool) {
+fn wrap(main: Vec3, face: Vec3, chunk: &mut ChunkKey, target: &mut IVec2) {
     // 3D coordinates of the current chunk
     let current = chunk_center_on_cube(*chunk);
     //flip those coordinates over the edge by moving half a chunk out and down
@@ -265,10 +280,30 @@ fn wrap(main: Vec3, other: Vec3, face: Vec3, chunk: &mut ChunkKey, target: &mut 
     //get the chunkkey for the flipped chunk and  update the value
     *chunk = get_chunk_key(flipped.normalize() * PLANET_RADIUS);
 
-    //change the basis between faces
-    let (old_dir, old_x, old_y) = face_axes(to_ivec3(face));
-    let (new_dir, new_x, new_y) = face_axes(to_ivec3(main));
+    //THESE ARE BIDIRECTIONAL
+    //functional
+    //posy->negz
+    //posy->posz
+    //posy->posx
+    //posy->negx
+    //posx->negy
+    //negx->negy
+    //Disfunctional
+    //ALL INTERACTIONS WITH THE BOTH Z AXES (EXCEPT FOR WITH POSY)
+
+    //depending on which edge we are crossing, modify target as necessary
+    match (face, main) {
+        (Vec3::Z, Vec3::NEG_Y) => { 
+            *target = ivec2(target.x, 2-target.y);
+        }
+        (Vec3::NEG_Y, Vec3::Z) => { 
+            *target = ivec2(target.x, -target.y);
+        }
+        _ => {}
+    }
+
     
+
 }
 
 //calculate the local axis of a given face

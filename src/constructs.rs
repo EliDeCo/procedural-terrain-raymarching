@@ -19,3 +19,6 @@ pub struct ChunkKey {
 pub struct RenderedChunks {
     pub set: HashSet<ChunkKey>,
 }
+
+#[derive(Component)]
+pub struct Chunk(pub ChunkKey);
