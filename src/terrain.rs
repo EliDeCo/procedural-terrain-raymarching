@@ -199,14 +199,17 @@ fn assign_chunks(player_coords: Vec3) -> HashSet<ChunkKey> {
 
     let player_chunk = get_chunk_key(player_coords);
 
-    let render: i32 = 3;
+    let render: i32 = 5;
 
     /* */
     for x in -render..=render {
         for y in -render..=render {
-            to_render.insert(
+            if x*x + y*y <= render*render {
+                to_render.insert(
                 player_to_global(&player_chunk, ivec2(x, y))
-            );
+                );
+            }
+            
         }
     }
 
