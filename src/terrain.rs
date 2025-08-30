@@ -170,14 +170,10 @@ pub fn manage_chunks(
         let to_render = assign_chunks(player_transform.translation);
 
         //remove chunks that are now out of range or do not have the correct LOD(not included in to_render)
-        let original = rendered.set.clone();
-        for chunk in original {
-            if !to_render.contains(&chunk) {
-                //remove the given chunk
-                if let Some((entity, _)) = all_chunks.iter().find(|(_, key)| key.0 == chunk) {
-                    commands.entity(entity).despawn();
-                    rendered.set.remove(&chunk);
-                }
+        for (entity, chunk) in all_chunks {
+            if !to_render.contains(&chunk.0) {
+                commands.entity(entity).despawn();
+                rendered.set.remove(&chunk.0);
             }
         }
 
