@@ -10,6 +10,7 @@ use bevy::{
 };
 
 use bevy_panorbit_camera::{PanOrbitCamera, PanOrbitCameraPlugin};
+use bevy_rich_text3d::Text3dPlugin;
 use iyes_perf_ui::prelude::*;
 
 use constructs::*;
@@ -17,7 +18,7 @@ use constructs::*;
 use crate::terrain::PLANET_RADIUS;
 
 const WINDOW_SCALE: f32 = 0.6;
-const MOVE_SPEED: f32 = 50.; // m/s
+const MOVE_SPEED: f32 = 500.; // m/s
 
 
 const WINDOW_WIDTH: f32 = 1920. * WINDOW_SCALE;
@@ -51,6 +52,12 @@ fn main() {
                     ..default()
                 }),
             PanOrbitCameraPlugin,
+            Text3dPlugin {
+                default_atlas_dimension: (1024, 1024),
+                load_system_fonts: true,
+                //load_font_directories: vec!["assets/fonts".to_owned()],
+                ..Default::default()
+            },
         ))
         //stores chunks that are currently displayed
         .init_resource::<RenderedChunks>()

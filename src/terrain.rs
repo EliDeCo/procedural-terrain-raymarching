@@ -1,16 +1,18 @@
 //use std::f32::consts::{SQRT_2};
 use bevy::{
     prelude::*,
-    render::{mesh::VertexAttributeValues, sync_world::RenderEntity},
+    render::{mesh::VertexAttributeValues}
 };
+use bevy_rich_text3d::{Text3d, Text3dStyling, TextAtlas};
 use std::collections::HashSet;
 
 //use crate::data_structures::*;
 use crate::constructs::*;
 
-pub const PLANET_RADIUS: f32 = 100.; // in meters
-const PREFERRED_CHUNK_SIZE: f32 = 10.; // in meters
-const PREFERRED_SUBDIVISION_SIZE: f32 = 10.; // in meters
+
+pub const PLANET_RADIUS: f32 = 1000.; // in meters
+const PREFERRED_CHUNK_SIZE: f32 = 100.; // in meters
+const PREFERRED_SUBDIVISION_SIZE: f32 = 100.; // in meters
 
 
 
@@ -154,7 +156,7 @@ fn get_chunk_key(coords: Vec3) -> ChunkKey {
 pub fn manage_chunks(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
-    //mut materials: ResMut<Assets<StandardMaterial>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
     player_q: Query<&Transform, With<Player>>,
     mut rendered: ResMut<RenderedChunks>,
     planet_material: Res<PlanetMaterial>,
@@ -187,6 +189,47 @@ pub fn manage_chunks(
                     MeshMaterial3d(planet_material.0.clone()),
                     Chunk(for_handle),
                 ));
+                let text_mat = materials.add(StandardMaterial {
+                    base_color_texture: Some(TextAtlas::DEFAULT_IMAGE.clone()),
+                    alpha_mode: AlphaMode::Blend,
+                    unlit: true,
+                    //base_color: Color::srgb(0.5, 0., 0.),
+                    ..Default::default()
+                });
+
+                let direction = chunk.direction;
+
+                //get the axis relative to the current face
+                let (direction, rel_x, rel_y) = face_axes(direction);
+                // get the rotation to align the chunk with the given face direction
+                let rotation = Quat::from_rotation_arc(Vec3::Z, direction);
+
+                // use the coordinates to find the offset for the chunk
+                let half: f32 = CHUNKS_PER_EDGE as f32 / 2.0;
+                let x_offset = (chunk.coords.x as f32 - half + 0.5) * ACTUAL_CHUNK_SIZE;
+                let y_offset = (chunk.coords.y as f32 - half + 0.5) * ACTUAL_CHUNK_SIZE;
+                
+
+                let transform = Transform {
+                    translation: (direction*(HALF+0.1) + rel_x*x_offset + rel_y*y_offset).normalize() * PLANET_RADIUS,
+                    rotation: rotation,
+                    ..default()
+                };
+
+                commands.spawn((
+                    Text3d::new(format!("({},{})", for_handle.coords.x, for_handle.coords.y)),
+                    Mesh3d::default(),
+                    MeshMaterial3d(text_mat),
+                    transform,
+                    Visibility::Visible,
+                    Text3dStyling {
+                        size: 60.,
+                        color: Srgba { red: (1.), green: (0.), blue: (0.), alpha: (1.) },
+                        ..default()
+                    }
+                ));
+                
+
             }
         }
     }
@@ -201,7 +244,7 @@ fn assign_chunks(player_coords: Vec3) -> HashSet<ChunkKey> {
 
     let render: i32 = 5;
 
-    /* */
+
     for x in -render..=render {
         for y in -render..=render {
             if x*x + y*y <= render*render {
@@ -212,7 +255,6 @@ fn assign_chunks(player_coords: Vec3) -> HashSet<ChunkKey> {
             
         }
     }
-
 
     to_render
 }
@@ -231,6 +273,7 @@ fn player_to_global(player: &ChunkKey, relative_coords: IVec2) -> ChunkKey {
             } else { //we need to wrap to the next face
                 let (direction, rel_x, _) = face_axes(point.direction);
                 wrap(rel_x, direction, &mut point, &mut distance);
+                                println!("Wrapping x from {} to {}", direction, rel_x);
                 distance.x -= 1;
             }
         } else { //we need to move in the negative x direction
@@ -265,7 +308,10 @@ fn player_to_global(player: &ChunkKey, relative_coords: IVec2) -> ChunkKey {
             } 
         }
     }
-
+    let compare = CHUNKS_PER_EDGE as i32 - 1;
+    if 0 > point.coords.x || 0 > point.coords.y || point.coords.x > compare || point.coords.y > compare {
+        println!("{}", point.coords)
+    }
     return point;
 }
 
@@ -292,16 +338,23 @@ fn wrap(main: Vec3, face: Vec3, chunk: &mut ChunkKey, target: &mut IVec2) {
 
     //depending on which edge we are crossing, modify target as necessary
     match (face, main) {
-        (Vec3::Z, Vec3::NEG_Y) => { 
+        (Vec3::Z, Vec3::NEG_Y) | (Vec3::NEG_Y, Vec3::Z) => { 
             *target = ivec2(target.x, 2-target.y);
         }
-        (Vec3::NEG_Y, Vec3::Z) => { 
-            *target = ivec2(target.x, -target.y);
+        (Vec3::NEG_Z, Vec3::NEG_Y) | (Vec3::NEG_Y, Vec3::NEG_Z) => { 
+            *target = ivec2(-target.x, -2-target.y);
+        }
+        (Vec3::Z, Vec3::X) => {
+            *target = ivec2(1+target.y,1-target.x);
+        }
+        (Vec3::X, Vec3::Z) => {
+            //print!("({},{}) mapped to ", target.x, target.y);
+            // *target = ivec2(target.y,target.x);
+            //println!("({},{})", target.x, target.y);
+            
         }
         _ => {}
     }
-
-    
 
 }
 
