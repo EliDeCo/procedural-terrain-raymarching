@@ -1,5 +1,7 @@
-use bevy::prelude::*;
+use bevy::{prelude::*};
+//use bevy::math::DVec3;
 use std::collections::HashSet;
+
 
 #[derive(Component)]
 pub struct Player{
@@ -22,3 +24,30 @@ pub struct RenderedChunks {
 
 #[derive(Component)]
 pub struct Chunk(pub ChunkKey);
+/* 
+pub trait ToDVec3 {
+    fn to_dvec3(self) -> DVec3;
+}
+
+impl ToDVec3 for Vec3 {
+    fn to_dvec3(self) -> DVec3 {
+        DVec3 { x: (self.x as f64), y: (self.y as f64), z: (self.z as f64) }
+    }
+}
+
+impl ToDVec3 for IVec3 {
+    fn to_dvec3(self) -> DVec3 {
+        DVec3 { x: (self.x as f64), y: (self.y as f64), z: (self.z as f64) }
+    }
+}
+
+pub trait ToVec3 {
+    fn to_vec3(self) -> Vec3;
+}
+
+impl ToVec3 for DVec3 {
+    fn to_vec3(self) -> Vec3 {
+        Vec3 { x: (self.x as f32), y: (self.y as f32), z: (self.z as f32) }
+    }
+}
+*/
