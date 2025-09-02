@@ -2,6 +2,7 @@
 use bevy::{
     //math::DVec3,
     //To deal with massive planet radii, use f64 where possible when it comes to render make every position relative (and keep player near the origin)
+    //pretty simple. Subtract the position of everything from the player to get relative distances, then use that to determine where things get rendered
     prelude::*,
     render::{mesh::VertexAttributeValues}
 };
