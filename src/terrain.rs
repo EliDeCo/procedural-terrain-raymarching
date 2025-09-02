@@ -1,5 +1,7 @@
 //use std::f32::consts::{SQRT_2};
 use bevy::{
+    //math::DVec3,
+    //To deal with massive planet radii, use f64 where possible when it comes to render make every position relative (and keep player near the origin)
     prelude::*,
     render::{mesh::VertexAttributeValues}
 };
@@ -10,9 +12,9 @@ use std::collections::HashSet;
 use crate::constructs::*;
 
 
-pub const PLANET_RADIUS: f32 = 100.; // in meters
-const PREFERRED_CHUNK_SIZE: f32 = 10.; // in meters
-const PREFERRED_SUBDIVISION_SIZE: f32 = 10.; // in meters
+pub const PLANET_RADIUS: f32 = 400_000.; // in meters, max ~400k
+const PREFERRED_CHUNK_SIZE: f32 = 500.; // in meters
+const PREFERRED_SUBDIVISION_SIZE: f32 = 500.; // in meters
 
 
 
@@ -29,6 +31,7 @@ pub fn display_info() {
     info!("ACTUAL_CHUNK_SIZE: {}", ACTUAL_CHUNK_SIZE);
     info!("CHUNK_SUBDIVISIONS: {}", CHUNK_SUBDIVISIONS);
     info!("ACTUAL SUBDIVISION SIZE: {}", ACTUAL_CHUNK_SIZE/(CHUNK_SUBDIVISIONS as f32+1.));
+    info!("DEFAULT HORIZON DISTANCE: {}m", (((PLANET_RADIUS+2.) * (PLANET_RADIUS+2.)) - (PLANET_RADIUS * PLANET_RADIUS)).sqrt())
 }
 
 
@@ -196,7 +199,7 @@ fn assign_chunks(player_coords: Vec3) -> HashSet<ChunkKey> {
     let player_chunk = get_chunk_key(player_coords);
 
     //calulate render distance in chunks based on player height and planet raidus
-    let render_distance = ((player_coords.length_squared() - (PLANET_RADIUS * PLANET_RADIUS)).sqrt() / ACTUAL_CHUNK_SIZE).ceil() as i32 + 1;
+    let render_distance = ((player_coords.length_squared() - (PLANET_RADIUS * PLANET_RADIUS)).sqrt() / ACTUAL_CHUNK_SIZE).floor() as i32 + 1;
 
 
     for x in -render_distance..=render_distance {
