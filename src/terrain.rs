@@ -195,12 +195,13 @@ fn assign_chunks(player_coords: Vec3) -> HashSet<ChunkKey> {
 
     let player_chunk = get_chunk_key(player_coords);
 
-    let render: i32 = 5;
+    //calulate render distance in chunks based on player height and planet raidus
+    let render_distance = ((player_coords.length_squared() - (PLANET_RADIUS * PLANET_RADIUS)).sqrt() / ACTUAL_CHUNK_SIZE).ceil() as i32 + 1;
 
 
-    for x in -render..=render {
-        for y in -render..=render {
-            if x*x + y*y <= render*render {
+    for x in -render_distance..=render_distance {
+        for y in -render_distance..=render_distance {
+            if x*x + y*y <= render_distance*render_distance {
                 to_render.insert(
                 player_to_global(&player_chunk, ivec2(x, y))
                 );
