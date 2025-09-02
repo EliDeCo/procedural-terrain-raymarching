@@ -61,6 +61,8 @@ fn main() {
         ))
         //stores chunks that are currently displayed
         .init_resource::<RenderedChunks>()
+        //stores the location of the player (since everything is rendered in relative coordinates)
+        .init_resource::<PlayerPos>()
         //sky color
         .insert_resource(ClearColor(Color::srgb(0.53, 0.81, 0.92)))
         //wireframe
@@ -100,6 +102,7 @@ fn setup(
     mut q_windows: Query<&mut Window, With<PrimaryWindow>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut player_pos: ResMut<PlayerPos>,
 ) {
     // camera
     commands.spawn((
@@ -149,6 +152,7 @@ fn setup(
         Transform::from_xyz(0., PLANET_RADIUS+1., 0.),
         Player{facing: Vec3::NEG_Z},
     ));
+    player_pos.position = Vec3::new(0., PLANET_RADIUS+1., 0.);
 
     //setup global material handle
     commands.insert_resource(PlanetMaterial(materials.add(StandardMaterial {..default()})));
@@ -229,7 +233,9 @@ fn player_move(
     time: Res<Time>,
     keys: Res<ButtonInput<KeyCode>>,
     mut player_q: Query<(&mut Player, &mut Transform)>,
+    mut player_pos: ResMut<PlayerPos>,
 ) {
+    
     if let Ok((mut player, mut player_transform)) = player_q.single_mut() {
         
         let mut pos = player_transform.translation;
@@ -277,6 +283,10 @@ fn player_move(
             player_transform.look_to(forward, up);
 
             player.facing = forward;
+
+            //update the stored player location
+            player_pos.position = pos;
+            assert!(player_pos.position == player_transform.translation);
 
         }
 

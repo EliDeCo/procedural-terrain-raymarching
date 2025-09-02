@@ -24,6 +24,15 @@ pub struct RenderedChunks {
 
 #[derive(Component)]
 pub struct Chunk(pub ChunkKey);
+
+
+
+#[derive(Resource, Default)]
+pub struct PlayerPos {
+    pub position: Vec3,
+}
+
+
 /* 
 pub trait ToDVec3 {
     fn to_dvec3(self) -> DVec3;

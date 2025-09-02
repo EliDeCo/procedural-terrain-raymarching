@@ -13,9 +13,9 @@ use std::collections::HashSet;
 use crate::constructs::*;
 
 
-pub const PLANET_RADIUS: f32 = 400_000.; // in meters, max ~400k
-const PREFERRED_CHUNK_SIZE: f32 = 500.; // in meters
-const PREFERRED_SUBDIVISION_SIZE: f32 = 500.; // in meters
+pub const PLANET_RADIUS: f32 = 100.; // in meters, max ~400k
+const PREFERRED_CHUNK_SIZE: f32 = 10.; // in meters
+const PREFERRED_SUBDIVISION_SIZE: f32 = 10.; // in meters
 
 
 
