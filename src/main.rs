@@ -18,7 +18,7 @@ use constructs::*;
 use crate::terrain::PLANET_RADIUS;
 
 const WINDOW_SCALE: f32 = 0.6;
-const MOVE_SPEED: f32 = 500.; // m/s
+const MOVE_SPEED: f32 = 50.; // m/s
 
 
 const WINDOW_WIDTH: f32 = 1920. * WINDOW_SCALE;
@@ -80,6 +80,7 @@ fn main() {
             setup, 
             enable_auto_indirect.after(setup),
             terrain::display_info,
+            //terrain::show_coords,
         ))
         .add_systems(
             Update,
