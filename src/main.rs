@@ -18,7 +18,7 @@ use constructs::*;
 use crate::terrain::{PLANET_RADIUS, SCALE_FACTOR};
 
 const WINDOW_SCALE: f32 = 0.6;
-const MOVE_SPEED: f32 = 1000.; // m/s
+const MOVE_SPEED: f32 = 100.; // m/s
 const REAL_MOVE_SPEED: f32 = MOVE_SPEED * SCALE_FACTOR; // in bevy units
 
 
@@ -156,7 +156,14 @@ fn setup(
     player_pos.position = Vec3::new(0., PLANET_RADIUS+SCALE_FACTOR, 0.);
 
     //setup global material handle
-    commands.insert_resource(PlanetMaterial(materials.add(StandardMaterial {..default()})));
+    commands.insert_resource(PlanetMaterial(materials.add(StandardMaterial {
+        base_color: Color::srgb(0.34, 0.49, 0.22), // deep green
+        metallic: 0.0,               // organic = dielectric
+        perceptual_roughness: 0.90,  // very diffuse, kills sparkle
+        reflectance: 0.04,           // ~4% F0 for leaves/plant matter
+        alpha_mode: AlphaMode::Opaque,
+        ..default()
+    })));
 }
 
 fn grab_mouse(

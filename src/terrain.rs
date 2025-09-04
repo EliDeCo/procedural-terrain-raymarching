@@ -8,21 +8,24 @@ use bevy::{
 };
 //use bevy_rich_text3d::{Text3d, Text3dStyling, TextAtlas};
 use std::collections::HashSet;
+use noise::{NoiseFn, Perlin};
 
 //use crate::data_structures::*;
 use crate::constructs::*;
 
 
-const INPUT_PLANET_RADIUS: f32 =  10_000.; // in meters
-const INPUT_PREFERRED_CHUNK_SIZE: f32 = 100.; // in meters
-const INPUT_PREFERRED_SUBDIVISION_SIZE: f32 = 10.; // in meters
+const INPUT_PLANET_RADIUS: f32 =  100_000.; // in meters
+const INPUT_PREFERRED_CHUNK_SIZE: f32 = 128.; // in meters
+const INPUT_PREFERRED_SUBDIVISION_SIZE: f32 = 16.; // in meters
+//const INPUT_TERRAIN_HEIGHT: f32 = 5.; // in meters, max height of terrain features
 pub const SCALE_FACTOR: f32 = 1.; //scale factor to convert from meters to bevy units
 
 
 //convert to bevy units
 pub const PLANET_RADIUS: f32 = INPUT_PLANET_RADIUS * SCALE_FACTOR;
 const PREFERRED_CHUNK_SIZE: f32 = INPUT_PREFERRED_CHUNK_SIZE * SCALE_FACTOR; 
-const PREFERRED_SUBDIVISION_SIZE: f32 = INPUT_PREFERRED_SUBDIVISION_SIZE * SCALE_FACTOR; 
+const PREFERRED_SUBDIVISION_SIZE: f32 = INPUT_PREFERRED_SUBDIVISION_SIZE * SCALE_FACTOR;
+//const TERRAIN_HEIGHT: f32 = INPUT_TERRAIN_HEIGHT * SCALE_FACTOR;
 
 const SQRT_3: f32 = 1.7320508075688772; // sqrt(3) for convenience
 const CUBE_SIZE: f32 = 2.*PLANET_RADIUS / SQRT_3; // side length of the cube that will become the planet
@@ -41,7 +44,7 @@ pub fn display_info() {
 }
 
 
-fn generate_chunk_mesh(direction: IVec3, coords: IVec2, subdivisions: u32) -> Mesh {
+fn generate_chunk_mesh(direction: IVec3, coords: IVec2, noise: Perlin, subdivisions: u32) -> Mesh {
     let mut mesh = Mesh::from(
         Plane3d::default()
             .mesh()
@@ -66,46 +69,54 @@ fn generate_chunk_mesh(direction: IVec3, coords: IVec2, subdivisions: u32) -> Me
         ..default()
     };
 
-    // bake the cube transform into the mesh vertices
-    bake_rigid_transform(&mut mesh, transform);
+    
+    if let Some(VertexAttributeValues::Float32x3(positions)) = mesh.attribute_mut(Mesh::ATTRIBUTE_POSITION) {
+        for pos in positions {
+            //transform the chunk to its correct position on the cube
+            *pos = transform.transform_point(Vec3::from_array(*pos)).to_array();
+            //inflate the cube to the sphere
+            *pos = (Vec3::from_array(*pos).normalize() * PLANET_RADIUS).to_array();
+
+            // add perlin noise (terrain)
+
+            //base roughness
+            let val1 = noise.get([
+                (pos[0]) as f64,
+                (pos[1]) as f64,
+                (pos[2]) as f64,
+            ]) as f32 * 2.;
+            
+            //rolling hills
+            let val2 = noise.get([
+                (pos[0] / 100.) as f64,
+                (pos[1] / 100.) as f64,
+                (pos[2] / 100.) as f64,
+            ]) as f32 * 10.;
+
+            let vectorize = Vec3::from_array(*pos);
+            *pos = (vectorize + vectorize.normalize() * (val1+val2)).to_array();
+        }
+    }
 
     // back the spherical transform
-    bake_spherical_transform(&mut mesh);
+    //bake_spherical_transform(&mut mesh);
 
     mesh.duplicate_vertices();
     mesh.compute_flat_normals();
+    //mesh.compute_normals();
 
     mesh
 }
 
-fn bake_rigid_transform(mesh: &mut Mesh, transform: Transform) {
-    if let Some(VertexAttributeValues::Float32x3(positions)) = mesh.attribute_mut(Mesh::ATTRIBUTE_POSITION) {
-        for pos in positions {
-            *pos = transform.transform_point(Vec3::from_array(*pos)).to_array();
-        }
-    }
-}
-
-// Convert the cube vertices to a spherical surface
-fn bake_spherical_transform(mesh: &mut Mesh) {
-    if let Some(VertexAttributeValues::Float32x3(positions)) = mesh.attribute_mut(Mesh::ATTRIBUTE_POSITION) {
-        for pos in positions {
-
-            // takes the vector pointing from the center of the cube and extends it to the planet radius
-            *pos = (Vec3::from_array(*pos).normalize() * PLANET_RADIUS).to_array();
-           
-        }
-    }
-}
 
 
 
 //takes in the current player location in 3D and returns a Chunkkey direction and cooresponding chunk coords
 fn get_chunk_key(coords: Vec3) -> ChunkKey {
 
-    let a = coords.abs();
-    let largest = a.x.max(a.y).max(a.z);
-    let direction = if largest == coords.x {
+    let a: Vec3 = coords.abs();
+    let largest: f32 = a.x.max(a.y).max(a.z);
+    let direction: IVec3 = if largest == coords.x {
         IVec3::X
     } else if largest == -coords.x {
         IVec3::NEG_X
@@ -126,23 +137,23 @@ fn get_chunk_key(coords: Vec3) -> ChunkKey {
     let (direction, rel_x, rel_y) = face_axes(direction);
 
     //Get 3D location where the line that intersects the player passes through a chunk (when it was still on the flat cube face)
-    let parallel_component = coords.dot(direction);
-    let distance = HALF / parallel_component;
-    let face_projection = coords * distance;
+    let parallel_component: f32 = coords.dot(direction);
+    let distance: f32 = HALF / parallel_component;
+    let face_projection: Vec3 = coords * distance;
 
 
     //opposite of calculations used to find 3D coordinates from chunkcoords
-    let x_offset = face_projection.dot(rel_x);
-    let y_offset = face_projection.dot(rel_y);
+    let x_offset: f32 = face_projection.dot(rel_x);
+    let y_offset: f32 = face_projection.dot(rel_y);
 
 
     let half: f32 = CHUNKS_PER_EDGE as f32 / 2.0;
-    let chunk_coords = IVec2::new(
+    let chunk_coords: IVec2 = IVec2::new(
         ((x_offset / ACTUAL_CHUNK_SIZE) + half - 0.5).round() as i32,
         ((y_offset / ACTUAL_CHUNK_SIZE) + half - 0.5).round() as i32,
     );
 
-    let direction = to_ivec3(direction);
+    let direction: IVec3 = to_ivec3(direction);
 
     ChunkKey {
         direction: direction,
@@ -169,7 +180,7 @@ pub fn manage_chunks(
         //println!("Chunk COORDS: {}", chunk_coords)
 
         //get the list of chunks to be rendered
-        let to_render = assign_chunks(player_transform.translation);
+        let to_render: HashSet<ChunkKey> = assign_chunks(player_transform.translation);
 
         //remove chunks that are now out of range or do not have the correct LOD(not included in to_render)
         for (entity, chunk) in all_chunks {
@@ -180,10 +191,11 @@ pub fn manage_chunks(
         }
 
         //if the chunk is not already rendered (or needs to be rerendered with a different LOD), render it
+        let noise: Perlin = Perlin::new(6767);
         for chunk in to_render {
             if rendered.set.insert(chunk.clone()) {
-                let for_handle = chunk.clone();
-                let handle = meshes.add(generate_chunk_mesh(for_handle.direction, for_handle.coords, CHUNK_SUBDIVISIONS));
+                let for_handle: ChunkKey = chunk.clone();
+                let handle: Handle<Mesh> = meshes.add(generate_chunk_mesh(for_handle.direction, for_handle.coords, noise, CHUNK_SUBDIVISIONS));
                 commands.spawn((
                     Mesh3d(handle),
                     MeshMaterial3d(planet_material.0.clone()),
