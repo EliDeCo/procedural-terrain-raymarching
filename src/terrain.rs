@@ -13,11 +13,16 @@ use std::collections::HashSet;
 use crate::constructs::*;
 
 
-pub const PLANET_RADIUS: f32 = 100.; // in meters, max ~400k
-const PREFERRED_CHUNK_SIZE: f32 = 10.; // in meters
-const PREFERRED_SUBDIVISION_SIZE: f32 = 10.; // in meters
+const INPUT_PLANET_RADIUS: f32 =  10_000.; // in meters
+const INPUT_PREFERRED_CHUNK_SIZE: f32 = 100.; // in meters
+const INPUT_PREFERRED_SUBDIVISION_SIZE: f32 = 10.; // in meters
+pub const SCALE_FACTOR: f32 = 1.; //scale factor to convert from meters to bevy units
 
 
+//convert to bevy units
+pub const PLANET_RADIUS: f32 = INPUT_PLANET_RADIUS * SCALE_FACTOR;
+const PREFERRED_CHUNK_SIZE: f32 = INPUT_PREFERRED_CHUNK_SIZE * SCALE_FACTOR; 
+const PREFERRED_SUBDIVISION_SIZE: f32 = INPUT_PREFERRED_SUBDIVISION_SIZE * SCALE_FACTOR; 
 
 const SQRT_3: f32 = 1.7320508075688772; // sqrt(3) for convenience
 const CUBE_SIZE: f32 = 2.*PLANET_RADIUS / SQRT_3; // side length of the cube that will become the planet
@@ -183,6 +188,7 @@ pub fn manage_chunks(
                     Mesh3d(handle),
                     MeshMaterial3d(planet_material.0.clone()),
                     Chunk(for_handle),
+                    //NoFrustumCulling,
                 ));
 
                 

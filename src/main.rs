@@ -10,15 +10,16 @@ use bevy::{
 };
 
 use bevy_panorbit_camera::{PanOrbitCamera, PanOrbitCameraPlugin};
-use bevy_rich_text3d::Text3dPlugin;
+//use bevy_rich_text3d::Text3dPlugin;
 use iyes_perf_ui::prelude::*;
 
 use constructs::*;
 
-use crate::terrain::PLANET_RADIUS;
+use crate::terrain::{PLANET_RADIUS, SCALE_FACTOR};
 
 const WINDOW_SCALE: f32 = 0.6;
-const MOVE_SPEED: f32 = 50.; // m/s
+const MOVE_SPEED: f32 = 1000.; // m/s
+const REAL_MOVE_SPEED: f32 = MOVE_SPEED * SCALE_FACTOR; // in bevy units
 
 
 const WINDOW_WIDTH: f32 = 1920. * WINDOW_SCALE;
@@ -52,12 +53,12 @@ fn main() {
                     ..default()
                 }),
             PanOrbitCameraPlugin,
-            Text3dPlugin {
-                default_atlas_dimension: (1024, 1024),
-                load_system_fonts: true,
+            //Text3dPlugin {
+            //    default_atlas_dimension: (1024, 1024),
+            //    load_system_fonts: true,
                 //load_font_directories: vec!["assets/fonts".to_owned()],
-                ..Default::default()
-            },
+            //    ..Default::default()
+            //},
         ))
         //stores chunks that are currently displayed
         .init_resource::<RenderedChunks>()
@@ -109,7 +110,7 @@ fn setup(
         //Transform::from_translation(Vec3::new(terrain::PLANET_RADIUS*2., terrain::PLANET_RADIUS*2., terrain::PLANET_RADIUS*2.)),
         PanOrbitCamera {
             allow_upside_down: true,
-            radius: Some(50.),
+            radius: Some(50.*SCALE_FACTOR),
             axis: [Vec3::X, Vec3::Y, Vec3::NEG_Z],
             ..default()
         },
@@ -147,12 +148,12 @@ fn setup(
 
     //Player mockup
     commands.spawn((
-        Mesh3d(meshes.add(Cuboid::new(1., 2., 1.))),
+        Mesh3d(meshes.add(Cuboid::new(SCALE_FACTOR, 2.*SCALE_FACTOR, SCALE_FACTOR))),
         MeshMaterial3d(materials.add(Color::srgb(0.2, 0.5, 0.3))),
-        Transform::from_xyz(0., PLANET_RADIUS+1., 0.),
+        Transform::from_xyz(0., PLANET_RADIUS+SCALE_FACTOR, 0.),
         Player{facing: Vec3::NEG_Z},
     ));
-    player_pos.position = Vec3::new(0., PLANET_RADIUS+1., 0.);
+    player_pos.position = Vec3::new(0., PLANET_RADIUS+SCALE_FACTOR, 0.);
 
     //setup global material handle
     commands.insert_resource(PlanetMaterial(materials.add(StandardMaterial {..default()})));
@@ -266,12 +267,12 @@ fn player_move(
         //prevents NAN issues when no input is given
         if axis_len > 1e-6 {
             let axis_n = axis / axis_len;
-            let angle = (MOVE_SPEED * time.delta_secs()) / (PLANET_RADIUS);
+            let angle = (REAL_MOVE_SPEED * time.delta_secs()) / (PLANET_RADIUS);
             let rotation = Quat::from_axis_angle(axis_n, angle);
             pos = rotation * pos;
 
             //make sure we remain on the surface of the planet (corrects any floating point errors)
-            pos = pos.normalize() * (PLANET_RADIUS+1.);
+            pos = pos.normalize() * (PLANET_RADIUS+SCALE_FACTOR);
 
             //update position
             player_transform.translation = pos;
