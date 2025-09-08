@@ -15,6 +15,7 @@ pub struct PlanetMaterial(pub Handle<StandardMaterial>);
 pub struct ChunkKey {
     pub direction: IVec3,
     pub coords: IVec2,
+    pub lod: u8,
 }
 
 #[derive(Resource, Default)]

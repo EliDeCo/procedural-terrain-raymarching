@@ -14,8 +14,8 @@ use noise::{NoiseFn, Perlin};
 use crate::constructs::*;
 
 
-const INPUT_PLANET_RADIUS: f32 =  100_000.; // in meters
-const INPUT_PREFERRED_CHUNK_SIZE: f32 = 128.; // in meters
+const INPUT_PLANET_RADIUS: f32 =  637_100.; // in meters
+const INPUT_PREFERRED_CHUNK_SIZE: f32 = 300.; // in meters
 const INPUT_PREFERRED_SUBDIVISION_SIZE: f32 = 16.; // in meters
 //const INPUT_TERRAIN_HEIGHT: f32 = 5.; // in meters, max height of terrain features
 pub const SCALE_FACTOR: f32 = 1.; //scale factor to convert from meters to bevy units
@@ -44,12 +44,12 @@ pub fn display_info() {
 }
 
 
-fn generate_chunk_mesh(direction: IVec3, coords: IVec2, noise: Perlin, subdivisions: u32) -> Mesh {
+fn generate_chunk_mesh(direction: IVec3, coords: IVec2, noise: Perlin, lod: u8) -> Mesh {
     let mut mesh = Mesh::from(
         Plane3d::default()
             .mesh()
             .size(ACTUAL_CHUNK_SIZE, ACTUAL_CHUNK_SIZE)
-            .subdivisions(subdivisions),
+            .subdivisions(lod as u32),
     );
 
     //get the axis relative to the current face
@@ -81,9 +81,9 @@ fn generate_chunk_mesh(direction: IVec3, coords: IVec2, noise: Perlin, subdivisi
 
             //base roughness
             let val1 = noise.get([
-                (pos[0]) as f64,
-                (pos[1]) as f64,
-                (pos[2]) as f64,
+                pos[0] as f64,
+                pos[1] as f64,
+                pos[2] as f64,
             ]) as f32 * 2.;
             
             //rolling hills
@@ -157,7 +157,8 @@ fn get_chunk_key(coords: Vec3) -> ChunkKey {
 
     ChunkKey {
         direction: direction,
-        coords: chunk_coords
+        coords: chunk_coords,
+        lod: CHUNK_SUBDIVISIONS as u8, //default LOD, will be updated later
     }
 }
 
@@ -190,12 +191,14 @@ pub fn manage_chunks(
             }
         }
 
-        //if the chunk is not already rendered (or needs to be rerendered with a different LOD), render it
+       
         let noise: Perlin = Perlin::new(6767);
         for chunk in to_render {
+
+             //if the chunk is not already rendered (or needs to be rerendered with a different LOD), render it
             if rendered.set.insert(chunk.clone()) {
                 let for_handle: ChunkKey = chunk.clone();
-                let handle: Handle<Mesh> = meshes.add(generate_chunk_mesh(for_handle.direction, for_handle.coords, noise, CHUNK_SUBDIVISIONS));
+                let handle: Handle<Mesh> = meshes.add(generate_chunk_mesh(for_handle.direction, for_handle.coords, noise, chunk.lod));
                 commands.spawn((
                     Mesh3d(handle),
                     MeshMaterial3d(planet_material.0.clone()),
@@ -224,8 +227,30 @@ fn assign_chunks(player_coords: Vec3) -> HashSet<ChunkKey> {
     for x in -render_distance..=render_distance {
         for y in -render_distance..=render_distance {
             if x*x + y*y <= render_distance*render_distance {
+                //assign the corredt LOD based on distance from player
+                let distance_squared = (x*x + y*y) as f32 * ACTUAL_CHUNK_SIZE * ACTUAL_CHUNK_SIZE / SCALE_FACTOR / SCALE_FACTOR;
+                let default_chunk = player_to_global(&player_chunk, ivec2(x, y));
+                let lod: u8;
+                if distance_squared <= 250_000. { // 500m
+                    lod = CHUNK_SUBDIVISIONS as u8; //highest detail
+                } else if distance_squared <= 1_000_000. { // 1km
+                    lod = (CHUNK_SUBDIVISIONS as f32 / 2.).floor() as u8;
+                } else if distance_squared <= 4_000_000. { // 2km
+                    lod = (CHUNK_SUBDIVISIONS as f32 / 4.).floor() as u8;
+                } else if distance_squared <= 9_000_000. { // 3km
+                    lod = (CHUNK_SUBDIVISIONS as f32 / 8.).floor() as u8;
+                } else if distance_squared <= 16_000_000. { // 4km
+                    lod = (CHUNK_SUBDIVISIONS as f32 / 16.).floor() as u8;
+                } else {
+                    lod = (CHUNK_SUBDIVISIONS as f32 / 32.).floor() as u8; //lowest detail
+                }
+
                 to_render.insert(
-                player_to_global(&player_chunk, ivec2(x, y))
+                    ChunkKey {
+                        direction: default_chunk.direction,
+                        coords: default_chunk.coords,
+                        lod: lod,
+                    }
                 );
             }
             
