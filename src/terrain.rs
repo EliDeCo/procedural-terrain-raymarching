@@ -1,8 +1,5 @@
 //use std::f32::consts::{SQRT_2};
 use bevy::{
-    //math::DVec3,
-    //To deal with massive planet radii, use f64 where possible when it comes to render make every position relative (and keep player near the origin)
-    //pretty simple. Subtract the position of everything from the player to get relative distances, then use that to determine where things get rendered
     prelude::*,
     render::{mesh::VertexAttributeValues}
 };
@@ -14,18 +11,10 @@ use noise::{NoiseFn, Perlin};
 use crate::constructs::*;
 
 
-const INPUT_PLANET_RADIUS: f32 =  637_100.; // in meters
-const INPUT_PREFERRED_CHUNK_SIZE: f32 = 300.; // in meters
-const INPUT_PREFERRED_SUBDIVISION_SIZE: f32 = 16.; // in meters
-//const INPUT_TERRAIN_HEIGHT: f32 = 5.; // in meters, max height of terrain features
-pub const SCALE_FACTOR: f32 = 1.; //scale factor to convert from meters to bevy units
+pub const PLANET_RADIUS: f32 = 100_000.; // in meters
+const PREFERRED_CHUNK_SIZE: f32 = 300.; // in meters
+const PREFERRED_SUBDIVISION_SIZE: f32 = 16.; // in meters
 
-
-//convert to bevy units
-pub const PLANET_RADIUS: f32 = INPUT_PLANET_RADIUS * SCALE_FACTOR;
-const PREFERRED_CHUNK_SIZE: f32 = INPUT_PREFERRED_CHUNK_SIZE * SCALE_FACTOR; 
-const PREFERRED_SUBDIVISION_SIZE: f32 = INPUT_PREFERRED_SUBDIVISION_SIZE * SCALE_FACTOR;
-//const TERRAIN_HEIGHT: f32 = INPUT_TERRAIN_HEIGHT * SCALE_FACTOR;
 
 const SQRT_3: f32 = 1.7320508075688772; // sqrt(3) for convenience
 const CUBE_SIZE: f32 = 2.*PLANET_RADIUS / SQRT_3; // side length of the cube that will become the planet
@@ -228,7 +217,7 @@ fn assign_chunks(player_coords: Vec3) -> HashSet<ChunkKey> {
         for y in -render_distance..=render_distance {
             if x*x + y*y <= render_distance*render_distance {
                 //assign the corredt LOD based on distance from player
-                let distance_squared = (x*x + y*y) as f32 * ACTUAL_CHUNK_SIZE * ACTUAL_CHUNK_SIZE / SCALE_FACTOR / SCALE_FACTOR;
+                let distance_squared = (x*x + y*y) as f32 * ACTUAL_CHUNK_SIZE * ACTUAL_CHUNK_SIZE;
                 let default_chunk = player_to_global(&player_chunk, ivec2(x, y));
                 let lod: u8;
                 if distance_squared <= 250_000. { // 500m
