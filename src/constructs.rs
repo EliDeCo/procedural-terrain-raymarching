@@ -59,5 +59,5 @@ impl ToVec3 for DVec3 {
     fn to_vec3(self) -> Vec3 {
         Vec3 { x: (self.x as f32), y: (self.y as f32), z: (self.z as f32) }
     }
-}
+}z
 */
