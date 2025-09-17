@@ -11,9 +11,9 @@ use noise::{NoiseFn, Perlin};
 use crate::constructs::*;
 
 
-pub const PLANET_RADIUS: f32 = 100_000.; // in meters
-const PREFERRED_CHUNK_SIZE: f32 = 300.; // in meters
-const PREFERRED_SUBDIVISION_SIZE: f32 = 16.; // in meters
+pub const PLANET_RADIUS: f32 = 100.; // in meters
+const PREFERRED_CHUNK_SIZE: f32 = 10.; // in meters
+const PREFERRED_SUBDIVISION_SIZE: f32 = 10.; // in meters
 
 
 const SQRT_3: f32 = 1.7320508075688772; // sqrt(3) for convenience
@@ -66,8 +66,10 @@ fn generate_chunk_mesh(direction: IVec3, coords: IVec2, noise: Perlin, lod: u8) 
             //inflate the cube to the sphere
             *pos = (Vec3::from_array(*pos).normalize() * PLANET_RADIUS).to_array();
 
-            // add perlin noise (terrain)
+            
 
+            /* 
+            // add perlin noise (terrain)
             //base roughness
             let val1 = noise.get([
                 pos[0] as f64,
@@ -84,6 +86,8 @@ fn generate_chunk_mesh(direction: IVec3, coords: IVec2, noise: Perlin, lod: u8) 
 
             let vectorize = Vec3::from_array(*pos);
             *pos = (vectorize + vectorize.normalize() * (val1+val2)).to_array();
+
+            */
         }
     }
 
@@ -158,19 +162,20 @@ pub fn manage_chunks(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     //mut materials: ResMut<Assets<StandardMaterial>>,
-    player_q: Query<&Transform, With<Player>>,
+    //player_q: Query<&Transform, With<Player>>,
+    player_info: Res<PlayerInfo>,
     mut rendered: ResMut<RenderedChunks>,
     planet_material: Res<PlanetMaterial>,
     all_chunks: Query<(Entity, &Chunk)>,
 ) {
     //USE INSERT
-    if let Ok(player_transform) = player_q.single() {
+    //if let Ok(player_transform) = player_q.single() {
         //let (direction, chunk_coords) = get_chunk_coords(player_transform.translation);
 
         //println!("Chunk COORDS: {}", chunk_coords)
 
         //get the list of chunks to be rendered
-        let to_render: HashSet<ChunkKey> = assign_chunks(player_transform.translation);
+        let to_render: HashSet<ChunkKey> = assign_chunks(player_info.position);
 
         //remove chunks that are now out of range or do not have the correct LOD(not included in to_render)
         for (entity, chunk) in all_chunks {
@@ -192,6 +197,7 @@ pub fn manage_chunks(
                     Mesh3d(handle),
                     MeshMaterial3d(planet_material.0.clone()),
                     Chunk(for_handle),
+                    Transform::from_translation(player_info.offset)
                     //NoFrustumCulling,
                 ));
 
@@ -199,7 +205,7 @@ pub fn manage_chunks(
 
             }
         }
-    }
+    //}
 }
 
 //assigns visible chunks to be rendered

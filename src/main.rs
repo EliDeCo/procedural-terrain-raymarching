@@ -61,8 +61,8 @@ fn main() {
         ))
         //stores chunks that are currently displayed
         .init_resource::<RenderedChunks>()
-        //stores the location of the player (since everything is rendered in relative coordinates)
-        .init_resource::<PlayerPos>()
+        //stores information of where the player is in simulated space (not rendered space)
+        .init_resource::<PlayerInfo>()
         //sky color
         .insert_resource(ClearColor(Color::srgb(0.53, 0.81, 0.92)))
         //wireframe
@@ -102,7 +102,7 @@ fn setup(
     mut q_windows: Query<&mut Window, With<PrimaryWindow>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    mut player_pos: ResMut<PlayerPos>,
+    mut player_info: ResMut<PlayerInfo>,
 ) {
     // camera
     commands.spawn((
@@ -149,10 +149,12 @@ fn setup(
     commands.spawn((
         Mesh3d(meshes.add(Cuboid::new(1., 2., 1.))),
         MeshMaterial3d(materials.add(Color::srgb(0.2, 0.5, 0.3))),
-        Transform::from_xyz(0., PLANET_RADIUS+1., 0.),
+        //Transform::from_xyz(0., PLANET_RADIUS+1., 0.),
         Player{facing: Vec3::NEG_Z},
     ));
-    player_pos.position = Vec3::new(0., PLANET_RADIUS+1., 0.);
+    player_info.position = Vec3::new(0., PLANET_RADIUS+1., 0.);
+    player_info.offset = Vec3::new(0., -(PLANET_RADIUS+1.), 0.);
+    player_info.facing = Vec3::NEG_Z;
 
     //setup global material handle
     commands.insert_resource(PlanetMaterial(materials.add(StandardMaterial {
@@ -240,22 +242,17 @@ fn player_move(
     time: Res<Time>,
     keys: Res<ButtonInput<KeyCode>>,
     mut player_q: Query<(&mut Player, &mut Transform)>,
-    mut player_pos: ResMut<PlayerPos>,
+    mut player_info: ResMut<PlayerInfo>,
 ) {
-    
-    if let Ok((mut player, mut player_transform)) = player_q.single_mut() {
-        
-        let mut pos = player_transform.translation;
 
+        
+        let mut pos = player_info.position;
 
         let up = pos.normalize();
         //re-tangent and normalize (basically made sure player.facing is actually perpendicular to up)
-        let forward = (player.facing - up * player.facing.dot(up)).normalize();
+        let forward = (player_info.facing - up * player_info.facing.dot(up)).normalize();
         let right = forward.cross(up).normalize();
-        
 
-        
-        //println!("DET: {}", right.cross(up).dot(forward));
 
         let mut input = Vec2::ZERO;
         if keys.pressed(KeyCode::KeyW) { input.y += 1.0; }
@@ -280,24 +277,27 @@ fn player_move(
             //make sure we remain on the surface of the planet (corrects any floating point errors)
             pos = pos.normalize() * (PLANET_RADIUS+1.);
 
-            //update position
-            player_transform.translation = pos;
+            //update simulated position and rotation
+            player_info.position = pos;
 
-            //update rotation (via redefining up and forward)
             let up = pos.normalize();
-            let forward = (player.facing - up * player.facing.dot(up)).normalize();
+            let forward = (player_info.facing - up * player_info.facing.dot(up)).normalize();
+            player_info.facing = forward;
 
-            player_transform.look_to(forward, up);
 
-            player.facing = forward;
+            //update rendered position and rotation
+            if let Ok((mut player, mut player_transform)) = player_q.single_mut() {
+                player_transform.translation = pos+player_info.offset;
+                player_transform.look_to(forward, up);
+                player.facing = forward;
+                //display new position in render space for debbugging
+                println!("Player Render Pos: {}", player_transform.translation);
+            }
 
-            //update the stored player location
-            player_pos.position = pos;
-            assert!(player_pos.position == player_transform.translation);
+            
 
         }
 
-    }
 
 
 

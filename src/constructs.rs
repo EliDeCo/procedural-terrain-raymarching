@@ -27,10 +27,12 @@ pub struct RenderedChunks {
 pub struct Chunk(pub ChunkKey);
 
 
-
+//stores the simulated position of the player and the offset to convert it into rendered position
 #[derive(Resource, Default)]
-pub struct PlayerPos {
+pub struct PlayerInfo {
     pub position: Vec3,
+    pub offset: Vec3,
+    pub facing: Vec3,
 }
 
 
