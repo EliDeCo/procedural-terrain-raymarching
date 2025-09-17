@@ -18,7 +18,7 @@ use constructs::*;
 use crate::terrain::PLANET_RADIUS;
 
 const WINDOW_SCALE: f32 = 0.6;
-const MOVE_SPEED: f32 = 100.; // m/s
+const MOVE_SPEED: f32 = 1000.; // m/s
 
 
 const WINDOW_WIDTH: f32 = 1920. * WINDOW_SCALE;
@@ -243,6 +243,7 @@ fn player_move(
     keys: Res<ButtonInput<KeyCode>>,
     mut player_q: Query<(&mut Player, &mut Transform)>,
     mut player_info: ResMut<PlayerInfo>,
+    mut all_chunks: Query<&mut Transform, (With<Chunk>, Without<Player>)>,
 ) {
 
         
@@ -291,15 +292,27 @@ fn player_move(
                 player_transform.look_to(forward, up);
                 player.facing = forward;
                 //display new position in render space for debbugging
-                println!("Player Render Pos: {}", player_transform.translation);
+                //println!("Player Render Pos: {}", player_transform.translation);
+
+                //println!("{}", player_transform.translation.length_squared());
+
+                //update offset if we've strayed too far from origin
+                if player_transform.translation.length_squared() > 2_000_000_000. {
+                    
+                    //move all the chunks back to the origin
+                    for mut chunk in all_chunks.iter_mut() {
+                        chunk.translation -= player_transform.translation;
+                    }
+
+                    //update the offset and move the player back
+                    player_info.offset = player_info.offset - player_transform.translation;
+                    player_transform.translation = Vec3::ZERO;
+
+                    println!("Offset updated: {}", player_info.offset);
             }
-
-            
-
         }
-
-
-
+    }
 
     
+
 }

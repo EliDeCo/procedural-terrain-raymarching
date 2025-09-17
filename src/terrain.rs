@@ -11,8 +11,8 @@ use noise::{NoiseFn, Perlin};
 use crate::constructs::*;
 
 
-pub const PLANET_RADIUS: f32 = 100.; // in meters
-const PREFERRED_CHUNK_SIZE: f32 = 10.; // in meters
+pub const PLANET_RADIUS: f32 = 1_100_000.; // in meters
+const PREFERRED_CHUNK_SIZE: f32 = 500.; // in meters
 const PREFERRED_SUBDIVISION_SIZE: f32 = 10.; // in meters
 
 
@@ -67,7 +67,7 @@ fn generate_chunk_mesh(direction: IVec3, coords: IVec2, noise: Perlin, lod: u8) 
             *pos = (Vec3::from_array(*pos).normalize() * PLANET_RADIUS).to_array();
 
             
-
+            let _ = noise.get([123.]); //temporary
             /* 
             // add perlin noise (terrain)
             //base roughness
