@@ -1,16 +1,18 @@
-use bevy::{prelude::*};
+use bevy::prelude::*;
 //use bevy::math::DVec3;
 use std::collections::HashSet;
 
-
+//used for identifying the player entity
 #[derive(Component)]
-pub struct Player{
-    pub facing: Vec3
+pub struct Player {
+    pub facing: Vec3,
 }
 
+//default material for terrain
 #[derive(Resource, Clone)]
 pub struct PlanetMaterial(pub Handle<StandardMaterial>);
 
+//stores critical information about a chunk
 #[derive(Debug, Default, PartialEq, Eq, Hash, Clone, Copy)]
 pub struct ChunkKey {
     pub direction: IVec3,
@@ -18,48 +20,20 @@ pub struct ChunkKey {
     pub lod: u8,
 }
 
+//stores the set of currently rendered chunks
 #[derive(Resource, Default)]
 pub struct RenderedChunks {
     pub set: HashSet<ChunkKey>,
 }
 
+//use to connect chunk entities to their ChunkKey
 #[derive(Component)]
 pub struct Chunk(pub ChunkKey);
 
-
-//stores the simulated position of the player and the offset to convert it into rendered position
+//stores the simulated position of the player, as well as the offset value used to convert it into rendered position
 #[derive(Resource, Default)]
 pub struct PlayerInfo {
     pub position: Vec3,
     pub offset: Vec3,
     pub facing: Vec3,
 }
-
-
-/* 
-pub trait ToDVec3 {
-    fn to_dvec3(self) -> DVec3;
-}
-
-impl ToDVec3 for Vec3 {
-    fn to_dvec3(self) -> DVec3 {
-        DVec3 { x: (self.x as f64), y: (self.y as f64), z: (self.z as f64) }
-    }
-}
-
-impl ToDVec3 for IVec3 {
-    fn to_dvec3(self) -> DVec3 {
-        DVec3 { x: (self.x as f64), y: (self.y as f64), z: (self.z as f64) }
-    }
-}
-
-pub trait ToVec3 {
-    fn to_vec3(self) -> Vec3;
-}
-
-impl ToVec3 for DVec3 {
-    fn to_vec3(self) -> Vec3 {
-        Vec3 { x: (self.x as f32), y: (self.y as f32), z: (self.z as f32) }
-    }
-}z
-*/

@@ -1,12 +1,19 @@
-mod terrain;
 mod constructs;
+mod terrain;
 
 use std::f32::consts::FRAC_PI_4;
 
 use bevy::{
-    pbr::wireframe::{WireframeConfig, WireframePlugin}, prelude::*, render::{
-        render_resource::WgpuFeatures, renderer::RenderAdapterInfo, settings::{Backends, RenderCreation, WgpuSettings}, view::NoIndirectDrawing, RenderPlugin
-    }, window::{CursorGrabMode, PresentMode, PrimaryWindow, WindowResolution}
+    pbr::wireframe::{WireframeConfig, WireframePlugin},
+    prelude::*,
+    render::{
+        RenderPlugin,
+        render_resource::WgpuFeatures,
+        renderer::RenderAdapterInfo,
+        settings::{Backends, RenderCreation, WgpuSettings},
+        view::NoIndirectDrawing,
+    },
+    window::{CursorGrabMode, PresentMode, PrimaryWindow, WindowResolution},
 };
 
 use bevy_panorbit_camera::{PanOrbitCamera, PanOrbitCameraPlugin};
@@ -19,7 +26,6 @@ use crate::terrain::PLANET_RADIUS;
 
 const WINDOW_SCALE: f32 = 0.6;
 const MOVE_SPEED: f32 = 1000.; // m/s
-
 
 const WINDOW_WIDTH: f32 = 1920. * WINDOW_SCALE;
 const WINDOW_HEIGHT: f32 = 1080. * WINDOW_SCALE;
@@ -55,7 +61,7 @@ fn main() {
             //Text3dPlugin {
             //    default_atlas_dimension: (1024, 1024),
             //    load_system_fonts: true,
-                //load_font_directories: vec!["assets/fonts".to_owned()],
+            //load_font_directories: vec!["assets/fonts".to_owned()],
             //    ..Default::default()
             //},
         ))
@@ -66,24 +72,25 @@ fn main() {
         //sky color
         .insert_resource(ClearColor(Color::srgb(0.53, 0.81, 0.92)))
         //wireframe
-        .add_plugins(WireframePlugin {..default()})
+        .add_plugins(WireframePlugin { ..default() })
         .insert_resource(WireframeConfig {
             global: false,
             ..default()
         })
-
-
         //diagnostics
         .add_plugins(bevy::diagnostic::FrameTimeDiagnosticsPlugin::default())
         .add_plugins(bevy::diagnostic::EntityCountDiagnosticsPlugin)
         .add_plugins(bevy::render::diagnostic::RenderDiagnosticsPlugin)
         .add_plugins(PerfUiPlugin)
-        .add_systems(Startup, (
-            setup, 
-            enable_auto_indirect.after(setup),
-            terrain::display_info,
-            //terrain::show_coords,
-        ))
+        .add_systems(
+            Startup,
+            (
+                setup,
+                enable_auto_indirect.after(setup),
+                terrain::display_info,
+                //terrain::show_coords,
+            ),
+        )
         .add_systems(
             Update,
             (
@@ -141,8 +148,7 @@ fn setup(
         PerfUiEntryFrameTime::default(),
         PerfUiEntryRenderCpuTime::default(),
         PerfUiEntryRenderGpuTime::default(),
-        PerfUiEntryEntityCount::default(),  
-
+        PerfUiEntryEntityCount::default(),
     ));
 
     //Player mockup
@@ -150,18 +156,20 @@ fn setup(
         Mesh3d(meshes.add(Cuboid::new(1., 2., 1.))),
         MeshMaterial3d(materials.add(Color::srgb(0.2, 0.5, 0.3))),
         //Transform::from_xyz(0., PLANET_RADIUS+1., 0.),
-        Player{facing: Vec3::NEG_Z},
+        Player {
+            facing: Vec3::NEG_Z,
+        },
     ));
-    player_info.position = Vec3::new(0., PLANET_RADIUS+1., 0.);
-    player_info.offset = Vec3::new(0., -(PLANET_RADIUS+1.), 0.);
+    player_info.position = Vec3::new(0., PLANET_RADIUS + 1., 0.);
+    player_info.offset = Vec3::new(0., -(PLANET_RADIUS + 1.), 0.);
     player_info.facing = Vec3::NEG_Z;
 
     //setup global material handle
     commands.insert_resource(PlanetMaterial(materials.add(StandardMaterial {
         base_color: Color::srgb(0.34, 0.49, 0.22), // deep green
-        metallic: 0.0,               // organic = dielectric
-        perceptual_roughness: 0.90,  // very diffuse, kills sparkle
-        reflectance: 0.04,           // ~4% F0 for leaves/plant matter
+        metallic: 0.0,                             // organic = dielectric
+        perceptual_roughness: 0.90,                // very diffuse, kills sparkle
+        reflectance: 0.04,                         // ~4% F0 for leaves/plant matter
         alpha_mode: AlphaMode::Opaque,
         ..default()
     })));
@@ -192,19 +200,18 @@ fn enable_auto_indirect(
     mut commands: Commands,
     cameras: Query<Entity, With<PanOrbitCamera>>,
 ) {
-     let is_intel = info.vendor == 0x8086 || info.vendor == 32902;
-     if is_intel {
-        println!("Enabling NoIndirectDrawing for Intel GPUs to avoid issues with indirect drawing.");
+    let is_intel = info.vendor == 0x8086 || info.vendor == 32902;
+    if is_intel {
+        println!(
+            "Enabling NoIndirectDrawing for Intel GPUs to avoid issues with indirect drawing."
+        );
         for entity in &cameras {
             commands.entity(entity).insert(NoIndirectDrawing);
         }
-     }
+    }
 }
 
-fn toggle_wireframe(
-    key: Res<ButtonInput<KeyCode>>,
-    mut config: ResMut<WireframeConfig>,
-) {
+fn toggle_wireframe(key: Res<ButtonInput<KeyCode>>, mut config: ResMut<WireframeConfig>) {
     if key.just_pressed(KeyCode::Space) {
         config.global = !config.global;
         //info!("Wireframe mode: {}", if config.global { "ON" } else { "OFF" });
@@ -213,18 +220,17 @@ fn toggle_wireframe(
 
 fn follow_cam(
     mut pan_orbit_q: Query<&mut PanOrbitCamera>,
-    player_q: Query<&Transform, With<Player>>
+    player_q: Query<&Transform, With<Player>>,
 ) {
     if let Ok(mut pan_orbit) = pan_orbit_q.single_mut() {
         if let Ok(player_transform) = player_q.single() {
             let pos = player_transform.translation;
-            
+
             //lock camera on player position
             pan_orbit.target_focus = pos;
-            
 
             //rotation
-            /* 
+            /*
             let rot = player_transform.rotation;
             let forward =  rot * Vec3::NEG_Z;
             let up = rot * Vec3::Y;
@@ -233,7 +239,6 @@ fn follow_cam(
             */
 
             pan_orbit.force_update = true;
-
         }
     }
 }
@@ -245,82 +250,79 @@ fn player_move(
     mut player_info: ResMut<PlayerInfo>,
     mut all_chunks: Query<&mut Transform, (With<Chunk>, Without<Player>)>,
 ) {
+    let mut pos = player_info.position;
 
-        
-        let mut pos = player_info.position;
+    let up = pos.normalize();
+    //re-tangent and normalize (basically made sure player.facing is actually perpendicular to up)
+    let forward = (player_info.facing - up * player_info.facing.dot(up)).normalize();
+    let right = forward.cross(up).normalize();
+
+    let mut input = Vec2::ZERO;
+    if keys.pressed(KeyCode::KeyW) {
+        input.y += 1.0;
+    }
+    if keys.pressed(KeyCode::KeyS) {
+        input.y -= 1.0;
+    }
+    if keys.pressed(KeyCode::KeyD) {
+        input.x += 1.0;
+    }
+    if keys.pressed(KeyCode::KeyA) {
+        input.x -= 1.0;
+    }
+    input = input.normalize();
+
+    let move_direction = (right * input.x + forward * input.y).normalize();
+
+    //rotate around this axis to simulate movement
+    let axis = up.cross(move_direction);
+    let axis_len = axis.length();
+
+    //prevents NAN issues when no input is given
+    if axis_len > 1e-6 {
+        let axis_n = axis / axis_len;
+        let angle = (MOVE_SPEED * time.delta_secs()) / (PLANET_RADIUS);
+        let rotation = Quat::from_axis_angle(axis_n, angle);
+        pos = rotation * pos;
+
+        //make sure we remain on the surface of the planet (corrects any floating point errors)
+        pos = pos.normalize() * (PLANET_RADIUS + 1.);
+
+        //update simulated position and rotation
+        player_info.position = pos;
 
         let up = pos.normalize();
-        //re-tangent and normalize (basically made sure player.facing is actually perpendicular to up)
         let forward = (player_info.facing - up * player_info.facing.dot(up)).normalize();
-        let right = forward.cross(up).normalize();
+        player_info.facing = forward;
 
+        //update rendered position and rotation
+        if let Ok((mut player, mut player_transform)) = player_q.single_mut() {
+            player_transform.translation = pos + player_info.offset;
+            player_transform.look_to(forward, up);
+            player.facing = forward;
+            //display new position in render space for debbugging
+            //println!("Player Render Pos: {}", player_transform.translation);
 
-        let mut input = Vec2::ZERO;
-        if keys.pressed(KeyCode::KeyW) { input.y += 1.0; }
-        if keys.pressed(KeyCode::KeyS) { input.y -= 1.0; }
-        if keys.pressed(KeyCode::KeyD) { input.x += 1.0; }
-        if keys.pressed(KeyCode::KeyA) { input.x -= 1.0; }
-        input = input.normalize();
+            //println!("{}", player_transform.translation.length_squared());
 
-        let move_direction = (right * input.x + forward * input.y).normalize();
+            //println!("{}", player_info.position.length());
 
-        //rotate around this axis to simulate movement
-        let axis = up.cross(move_direction);
-        let axis_len = axis.length();
+            //update offset if we've strayed too far from origin
+            if player_transform.translation.length_squared() > 2_000_000_000. {
+                //move all the chunks back to the origin
+                for mut chunk in all_chunks.iter_mut() {
+                    chunk.translation -= player_transform.translation;
+                }
 
-        //prevents NAN issues when no input is given
-        if axis_len > 1e-6 {
-            let axis_n = axis / axis_len;
-            let angle = (MOVE_SPEED * time.delta_secs()) / (PLANET_RADIUS);
-            let rotation = Quat::from_axis_angle(axis_n, angle);
-            pos = rotation * pos;
+                //update the offset and move the player back
+                player_info.offset = player_info.offset - player_transform.translation;
+                player_transform.translation = Vec3::ZERO;
 
-            //make sure we remain on the surface of the planet (corrects any floating point errors)
-            pos = pos.normalize() * (PLANET_RADIUS+1.);
-
-            //update simulated position and rotation
-            player_info.position = pos;
-
-            let up = pos.normalize();
-            let forward = (player_info.facing - up * player_info.facing.dot(up)).normalize();
-            player_info.facing = forward;
-
-
-            //update rendered position and rotation
-            if let Ok((mut player, mut player_transform)) = player_q.single_mut() {
-                player_transform.translation = pos+player_info.offset;
-                player_transform.look_to(forward, up);
-                player.facing = forward;
-                //display new position in render space for debbugging
-                //println!("Player Render Pos: {}", player_transform.translation);
-
-                //println!("{}", player_transform.translation.length_squared());
-
-                //println!("{}", player_info.position.length());
-
-
-                //update offset if we've strayed too far from origin
-                if player_transform.translation.length_squared() > 2_000_000_000. {
-                    
-                    //move all the chunks back to the origin
-                    for mut chunk in all_chunks.iter_mut() {
-                        chunk.translation -= player_transform.translation;
-                    }
-
-                    //update the offset and move the player back
-                    player_info.offset = player_info.offset - player_transform.translation;
-                    player_transform.translation = Vec3::ZERO;
-
-                    println!("Offset updated: {}", player_info.offset);
+                println!("Offset updated: {}", player_info.offset);
             }
 
-
-            
             //display height for debugging
             //println!("Height: {}", player_transform.translation.distance(player_info.offset) - PLANET_RADIUS);
         }
     }
-
-    
-
 }
