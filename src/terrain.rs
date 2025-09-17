@@ -1,17 +1,20 @@
 //use std::f32::consts::{SQRT_2};
 use bevy::{
     prelude::*,
-    render::{mesh::VertexAttributeValues}
+    render::{mesh::VertexAttributeValues},
+    math::DVec3,
 };
+use bevy_rapier3d::na::ComplexField;
 //use bevy_rich_text3d::{Text3d, Text3dStyling, TextAtlas};
 use std::collections::HashSet;
 use noise::{NoiseFn, Perlin};
+
 
 //use crate::data_structures::*;
 use crate::constructs::*;
 
 
-pub const PLANET_RADIUS: f32 = 1_100_000.; // in meters
+pub const PLANET_RADIUS: f32 = 6_378_137.; // in meters
 const PREFERRED_CHUNK_SIZE: f32 = 500.; // in meters
 const PREFERRED_SUBDIVISION_SIZE: f32 = 10.; // in meters
 
@@ -205,6 +208,9 @@ pub fn manage_chunks(
 
             }
         }
+
+
+        //possibly add a stitching function here to fix cracks between chunks
     //}
 }
 
@@ -215,8 +221,13 @@ fn assign_chunks(player_coords: Vec3) -> HashSet<ChunkKey> {
 
     let player_chunk = get_chunk_key(player_coords);
 
-    //calulate render distance in chunks based on player height and planet raidus
-    let render_distance = ((player_coords.length_squared() - (PLANET_RADIUS * PLANET_RADIUS)).sqrt() / ACTUAL_CHUNK_SIZE).floor() as i32 + 1;
+    //calulate render distance in chunks based on player height and planet raidus (in f64 because large numbers require more precision)
+    let height: f32 = player_coords.length() - PLANET_RADIUS;
+    let horizon_distance: f32 = (height * (2.*PLANET_RADIUS + height)).sqrt();
+    //println!("Height: {}m, Horizon Distance: {}m", height, horizon_distance);
+    let render_distance: i32 = (horizon_distance / ACTUAL_CHUNK_SIZE).ceil() as i32 + 1;
+    //println!("Render Distance: {} chunks", render_distance);
+
 
 
     for x in -render_distance..=render_distance {

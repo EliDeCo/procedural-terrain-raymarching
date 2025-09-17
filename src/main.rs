@@ -296,6 +296,9 @@ fn player_move(
 
                 //println!("{}", player_transform.translation.length_squared());
 
+                //println!("{}", player_info.position.length());
+
+
                 //update offset if we've strayed too far from origin
                 if player_transform.translation.length_squared() > 2_000_000_000. {
                     
@@ -310,6 +313,11 @@ fn player_move(
 
                     println!("Offset updated: {}", player_info.offset);
             }
+
+
+            
+            //display height for debugging
+            //println!("Height: {}", player_transform.translation.distance(player_info.offset) - PLANET_RADIUS);
         }
     }
 
