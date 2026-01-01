@@ -10,8 +10,6 @@ iyes_perf_ui = "0.5"
 noise = "0.9.0"
 rand = "0.9.0"
 bevy_panorbit_camera = "0.28.0"
-bevy_rapier3d = "0.31.0"
-#bevy_rich_text3d = "0.4.2"
 
 [profile.dev]
 opt-level = 1

@@ -1,22 +1,41 @@
 use crate::constructs::*;
-use bevy::{prelude::*, render::mesh::VertexAttributeValues};
+use bevy::{{prelude::*, render::mesh::VertexAttributeValues}, math::DVec3};
 use noise::{NoiseFn, Perlin};
 use std::collections::HashSet;
 
-pub const PLANET_RADIUS: f32 = 6_378_137.; // in meters
-const PREFERRED_CHUNK_SIZE: f32 = 500.; // in meters
-const PREFERRED_SUBDIVISION_SIZE: f32 = 10.; // in meters
+const fn const_sqrt(x: f64) -> f64 {
+    let mut guess = x;
+    let mut i = 0;
+    while i < 10 {
+        guess = 0.5 * (guess + x / guess);
+        i += 1;
+    }
+    guess
+}
 
-const SQRT_3: f32 = 1.7320508075688772; // sqrt(3) for convenience
-const CUBE_SIZE: f32 = 2. * PLANET_RADIUS / SQRT_3; // side length of the cube that will become the planet
+const fn const_max(a: f64, b: f64) -> f64 {
+    if a > b {
+        a
+    } else {
+        b
+    }
+}
+
+
+pub const PLANET_RADIUS: f64 = 10_000_000.; // in meters
+
+
+pub const PREFERRED_CHUNK_SIZE: f32 = const_max(0.1 * const_sqrt(PLANET_RADIUS + 1.), 10.) as f32;
+const PREFERRED_SUBDIVISION_SIZE: f32 = 10.;
+const SQRT_3: f64 = 1.7320508075688772;
+const CUBE_SIZE: f32 = (2. * PLANET_RADIUS / SQRT_3) as f32; // side length of the cube that will become the planet
 const HALF: f32 = CUBE_SIZE / 2.0; // half the size of the cube
 const CHUNKS_PER_EDGE: u32 = (CUBE_SIZE / PREFERRED_CHUNK_SIZE) as u32; // number of chunks along one edge of a cube face
 const ACTUAL_CHUNK_SIZE: f32 = CUBE_SIZE / CHUNKS_PER_EDGE as f32; // actual size of each chunk
 const CHUNK_SUBDIVISIONS: u32 = (ACTUAL_CHUNK_SIZE / PREFERRED_SUBDIVISION_SIZE) as u32 - 1; // number of subdivisions in each chunk
 
+
 pub fn display_info() {
-    //info!("CUBE_SIZE: {}", CUBE_SIZE);
-    //info!("CHUNKS_PER_EDGE: {}", CHUNKS_PER_EDGE);
     info!("ACTUAL_CHUNK_SIZE: {}", ACTUAL_CHUNK_SIZE);
     info!("CHUNK_SUBDIVISIONS: {}", CHUNK_SUBDIVISIONS);
     info!(
@@ -61,31 +80,24 @@ fn generate_chunk_mesh(direction: IVec3, coords: IVec2, noise: Perlin, lod: u8) 
             //transform the chunk to its correct position on the cube
             *pos = transform.transform_point(Vec3::from_array(*pos)).to_array();
             //inflate the cube to the sphere
-            *pos = (Vec3::from_array(*pos).normalize() * PLANET_RADIUS).to_array();
+            *pos = (Vec3::from_array(*pos).normalize() * PLANET_RADIUS as f32).to_array();
 
             let _ = noise.get([123.]); //temporary to avoid warning
 
-            //the following adds terrain, currently disabled for testing other features
-            /*
+            
             // add perlin noise (terrain)
             //base roughness
             let val1 = noise.get([
                 pos[0] as f64,
                 pos[1] as f64,
                 pos[2] as f64,
-            ]) as f32 * 2.;
-
-            //rolling hills
-            let val2 = noise.get([
-                (pos[0] / 100.) as f64,
-                (pos[1] / 100.) as f64,
-                (pos[2] / 100.) as f64,
-            ]) as f32 * 10.;
+            ]) as f32 * 1.;
+            
 
             let vectorize = Vec3::from_array(*pos);
-            *pos = (vectorize + vectorize.normalize() * (val1+val2)).to_array();
+            *pos = (vectorize + vectorize.normalize() * (val1)).to_array();
+            
 
-            */
         }
     }
 
@@ -190,47 +202,30 @@ pub fn manage_chunks(
 }
 
 ///assigns visible chunks to be rendered based on player location
-fn assign_chunks(player_coords: Vec3) -> HashSet<ChunkKey> {
+fn assign_chunks(player_coords: DVec3) -> HashSet<ChunkKey> {
     let mut to_render: HashSet<ChunkKey> = HashSet::new();
 
-    let player_chunk: ChunkKey = get_chunk_key(player_coords);
+    let player_chunk: ChunkKey = get_chunk_key(player_coords.as_vec3());
 
     //calulate render distance in chunks based on player height and planet raidus
-    let height: f32 = player_coords.length() - PLANET_RADIUS;
-    let horizon_distance: f32 = (height * (2. * PLANET_RADIUS + height)).sqrt();
-    let render_distance: i32 = (horizon_distance / ACTUAL_CHUNK_SIZE).ceil() as i32 + 1;
+    let height: f64 = (player_coords.length() - PLANET_RADIUS).max(1.);
+    let height_snapped: f64 = (height / 10.).ceil() * 10.;
+    let horizon_distance: f64 = (height_snapped * (2. * PLANET_RADIUS + height_snapped)).sqrt();
+    let render_distance: i32 = (horizon_distance / ACTUAL_CHUNK_SIZE as f64).ceil() as i32 + 1;
+    let render_squared: i32 = render_distance * render_distance;
 
     for x in -render_distance..=render_distance {
         for y in -render_distance..=render_distance {
-            if x * x + y * y <= render_distance * render_distance {
+            if x * x + y * y <= render_squared {
                 //assign the correct LOD based on distance from player
                 let distance_squared =
                     (x * x + y * y) as f32 * ACTUAL_CHUNK_SIZE * ACTUAL_CHUNK_SIZE;
                 let default_chunk: ChunkKey = player_to_global(&player_chunk, ivec2(x, y));
-                let lod: u8;
-                if distance_squared <= 250_000. {
-                    // 500m
-                    lod = CHUNK_SUBDIVISIONS as u8; //highest detail
-                } else if distance_squared <= 1_000_000. {
-                    // 1km
-                    lod = (CHUNK_SUBDIVISIONS as f32 / 2.).floor() as u8;
-                } else if distance_squared <= 4_000_000. {
-                    // 2km
-                    lod = (CHUNK_SUBDIVISIONS as f32 / 4.).floor() as u8;
-                } else if distance_squared <= 9_000_000. {
-                    // 3km
-                    lod = (CHUNK_SUBDIVISIONS as f32 / 8.).floor() as u8;
-                } else if distance_squared <= 16_000_000. {
-                    // 4km
-                    lod = (CHUNK_SUBDIVISIONS as f32 / 16.).floor() as u8;
-                } else {
-                    lod = (CHUNK_SUBDIVISIONS as f32 / 32.).floor() as u8; //lowest detail
-                }
 
                 to_render.insert(ChunkKey {
                     direction: default_chunk.direction,
                     coords: default_chunk.coords,
-                    lod: lod,
+                    lod: get_lod(distance_squared),
                 });
             }
         }
@@ -284,12 +279,12 @@ fn move_in_direction(chunk: &mut ChunkKey, dir: &mut Vec3) {
         && pos.dot(-rel_x) <= HALF - (ACTUAL_CHUNK_SIZE / 2.)
         && pos.dot(-rel_y) <= HALF - (ACTUAL_CHUNK_SIZE / 2.)
     {
-        *chunk = get_chunk_key(pos.normalize() * PLANET_RADIUS);
+        *chunk = get_chunk_key(pos.normalize() * PLANET_RADIUS as f32);
     } else {
         //if the new position is not within the bounds of the face, wrap the position to the next side and update the movement direction
         let wrapped_pos: Vec3 =
             pos - (*dir * (ACTUAL_CHUNK_SIZE / 2.)) - (face * (ACTUAL_CHUNK_SIZE / 2.));
-        *chunk = get_chunk_key(wrapped_pos.normalize() * PLANET_RADIUS);
+        *chunk = get_chunk_key(wrapped_pos.normalize() * PLANET_RADIUS as f32);
         *dir = -face;
     }
 }
@@ -312,9 +307,6 @@ fn to_ivec3(input: Vec3) -> IVec3 {
     IVec3::new(input.x as i32, input.y as i32, input.z as i32)
 }
 
-///convert Ivec3 to Vec3
-//fn to_vec3(input: IVec3) -> Vec3 {Vec3::new(input.x as f32, input.y as f32, input.z as f32)}
-
 ///given a chunk, it finds the 3D coordinates of its center on the surface of the cube
 fn chunk_center_on_cube(chunk: ChunkKey) -> Vec3 {
     let (dir, rel_x, rel_y) = face_axes(chunk.direction);
@@ -326,64 +318,12 @@ fn chunk_center_on_cube(chunk: ChunkKey) -> Vec3 {
     (dir * HALF) + (rel_x * x_offset) + (rel_y * y_offset)
 }
 
-// Previously used function displayed the chunk coordinates on the planet for testing purposes
-/*
-//shows the coordinates of all chunks on the planet
-pub fn show_coords(
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    mut commands: Commands,
-    //mut meshes: ResMut<Assets<Mesh>>,
-) {
-    let text_mat = materials.add(StandardMaterial {
-        base_color_texture: Some(TextAtlas::DEFAULT_IMAGE.clone()),
-        alpha_mode: AlphaMode::Blend,
-        unlit: true,
-        //base_color: Color::srgb(0.5, 0., 0.),
-        ..Default::default()
-    });
-
-
-    for direction in [IVec3::X, IVec3::NEG_X, IVec3::Y, IVec3::NEG_Y, IVec3::Z, IVec3::NEG_Z] {
-        for x in 0..(CHUNKS_PER_EDGE as i32) {
-             for y in 0..(CHUNKS_PER_EDGE as i32) {
-                let chunk = ChunkKey {
-                    direction: direction,
-                    coords: ivec2(x, y),
-                };
-
-                //get the axis relative to the current face
-                let (direction, rel_x, rel_y) = face_axes(direction);
-                // get the rotation to align the chunk with the given face direction
-                let rotation = Quat::from_rotation_arc(Vec3::Z, direction);
-
-                // use the coordinates to find the offset for the chunk
-                let half: f32 = CHUNKS_PER_EDGE as f32 / 2.0;
-                let x_offset = (chunk.coords.x as f32 - half + 0.5) * ACTUAL_CHUNK_SIZE;
-                let y_offset = (chunk.coords.y as f32 - half + 0.5) * ACTUAL_CHUNK_SIZE;
-
-
-                let transform = Transform {
-                    translation: (direction*(HALF+0.1) + rel_x*x_offset + rel_y*y_offset).normalize() * PLANET_RADIUS,
-                    rotation: rotation,
-                    ..default()
-                };
-
-                let for_handle = chunk.clone();
-                //let handle = meshes.add(generate_chunk_mesh(for_handle.direction, for_handle.coords, CHUNK_SUBDIVISIONS));
-                commands.spawn((
-                    Text3d::new(format!("({},{})", for_handle.coords.x, for_handle.coords.y)),
-                    Mesh3d::default(),
-                    MeshMaterial3d(text_mat.clone()),
-                    transform,
-                    Visibility::Visible,
-                    Text3dStyling {
-                        size: 60.,
-                        color: Srgba { red: (1.), green: (0.), blue: (0.), alpha: (1.) },
-                        ..default()
-                    }
-                ));
-            }
-        }
+fn get_lod(distance_squared: f32) -> u8 {
+    if distance_squared <= 250_000. {
+        return CHUNK_SUBDIVISIONS as u8; //highest detail
     }
+
+    let km = (distance_squared.sqrt() / 1000.).floor() as i32;
+    let lod = (CHUNK_SUBDIVISIONS as u32) >> km;
+    return lod as u8;
 }
-     */
