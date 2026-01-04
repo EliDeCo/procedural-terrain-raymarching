@@ -3,10 +3,11 @@ use bevy::{{prelude::*, render::mesh::VertexAttributeValues}, math::DVec3};
 use noise::{NoiseFn, Perlin};
 use std::collections::HashSet;
 
+
 const fn const_sqrt(x: f64) -> f64 {
-    let mut guess = x;
+    let mut guess = x/1_000.0;
     let mut i = 0;
-    while i < 10 {
+    while i < 100 {
         guess = 0.5 * (guess + x / guess);
         i += 1;
     }
@@ -21,25 +22,42 @@ const fn const_max(a: f64, b: f64) -> f64 {
     }
 }
 
+const fn nearest_odd_u32(x: f32) -> u32 {
+    let n = x as u32;
+    if n % 2 == 0 {
+        n + 1
+    } else {
+        n
+    }
+}
 
-pub const PLANET_RADIUS: f64 = 10_000_000.; // in meters
-
-
-pub const PREFERRED_CHUNK_SIZE: f32 = const_max(0.1 * const_sqrt(PLANET_RADIUS + 1.), 10.) as f32;
+//pluto: 1_188_300.0
+//earth: 6_371_000.0
+//moon: 1_737_400.0
+pub const PLANET_RADIUS: f64 = 3_000_000.0; // in meters
 const PREFERRED_SUBDIVISION_SIZE: f32 = 10.;
+
+//chunk calculations
 const SQRT_3: f64 = 1.7320508075688772;
-const CUBE_SIZE: f32 = (2. * PLANET_RADIUS / SQRT_3) as f32; // side length of the cube that will become the planet
-const HALF: f32 = CUBE_SIZE / 2.0; // half the size of the cube
-const CHUNKS_PER_EDGE: u32 = (CUBE_SIZE / PREFERRED_CHUNK_SIZE) as u32; // number of chunks along one edge of a cube face
-const ACTUAL_CHUNK_SIZE: f32 = CUBE_SIZE / CHUNKS_PER_EDGE as f32; // actual size of each chunk
-const CHUNK_SUBDIVISIONS: u32 = (ACTUAL_CHUNK_SIZE / PREFERRED_SUBDIVISION_SIZE) as u32 - 1; // number of subdivisions in each chunk
+const CUBE_SIZE: f32 = (2. * PLANET_RADIUS / SQRT_3) as f32;
+const HALF: f32 = CUBE_SIZE / 2.0;
+pub const PREFERRED_CHUNK_SIZE: f32 = const_max(const_sqrt(std::f64::consts::PI*PLANET_RADIUS*0.5), 10.0) as f32;
+const CHUNKS_PER_EDGE: u32 = nearest_odd_u32(CUBE_SIZE / PREFERRED_CHUNK_SIZE);
+const ACTUAL_CHUNK_SIZE: f32 = CUBE_SIZE / CHUNKS_PER_EDGE as f32;
+
+//subdivision calculations
+const CHUNK_ANGLE: f32 = std::f32::consts::FRAC_PI_2 / CHUNKS_PER_EDGE as f32;
+const SUBDIVISION_ANGLE: f32 = PREFERRED_SUBDIVISION_SIZE / (PLANET_RADIUS) as f32;
+const CHUNK_SUBDIVISIONS: u32 = (CHUNK_ANGLE / SUBDIVISION_ANGLE) as u32;
 
 
 pub fn display_info() {
+    info!("Subdivision Angle (radians): {}", SUBDIVISION_ANGLE);
+    info!("Chunks per edge: {}", CHUNKS_PER_EDGE);
     info!("ACTUAL_CHUNK_SIZE: {}", ACTUAL_CHUNK_SIZE);
     info!("CHUNK_SUBDIVISIONS: {}", CHUNK_SUBDIVISIONS);
     info!(
-        "ACTUAL SUBDIVISION SIZE: {}",
+        "ACTUAL SUBDIVISION SIZE (on cube): {}",
         ACTUAL_CHUNK_SIZE / (CHUNK_SUBDIVISIONS as f32 + 1.)
     );
     info!(
@@ -84,18 +102,18 @@ fn generate_chunk_mesh(direction: IVec3, coords: IVec2, noise: Perlin, lod: u8) 
 
             let _ = noise.get([123.]); //temporary to avoid warning
 
-            
+            /* 
             // add perlin noise (terrain)
             //base roughness
             let val1 = noise.get([
-                pos[0] as f64,
-                pos[1] as f64,
-                pos[2] as f64,
-            ]) as f32 * 1.;
-            
+                (pos[0] / 1000.0) as f64,
+                (pos[1] / 1000.0) as f64,
+                (pos[2] / 1000.0) as f64,
+            ]) as f32 * 50.;
+            */
 
-            let vectorize = Vec3::from_array(*pos);
-            *pos = (vectorize + vectorize.normalize() * (val1)).to_array();
+            //let vectorize = Vec3::from_array(*pos);
+            //*pos = (vectorize + vectorize.normalize() * (val1)).to_array();
             
 
         }
@@ -126,6 +144,7 @@ fn get_chunk_key(coords: Vec3) -> ChunkKey {
     } else if largest == -coords.z {
         IVec3::NEG_Z
     } else {
+        println!("{:?}", coords);
         panic!("What!?!?")
     };
 
@@ -320,10 +339,17 @@ fn chunk_center_on_cube(chunk: ChunkKey) -> Vec3 {
 
 fn get_lod(distance_squared: f32) -> u8 {
     if distance_squared <= 250_000. {
-        return CHUNK_SUBDIVISIONS as u8; //highest detail
+        return CHUNK_SUBDIVISIONS as u8; //highest detail close to player
     }
 
     let km = (distance_squared.sqrt() / 1000.).floor() as i32;
-    let lod = (CHUNK_SUBDIVISIONS as u32) >> km;
+    let lod: u64;
+    //to prevent shifting overflow
+    if km < 64 {
+        //shorthand to divide by 2^km
+        lod = (CHUNK_SUBDIVISIONS as u64) >> km;
+    } else {
+        lod = 0;
+    }
     return lod as u8;
 }

@@ -239,7 +239,7 @@ fn player_move(
     let forward = (player_info.facing - up * player_info.facing.dot(up)).normalize();
     let right = forward.cross(up).normalize();
 
-    let mut input = Vec2::ZERO;
+    let mut input = Vec3::ZERO;
     if keys.pressed(KeyCode::KeyW) {
         input.y += 1.0;
     }
@@ -252,25 +252,39 @@ fn player_move(
     if keys.pressed(KeyCode::KeyA) {
         input.x -= 1.0;
     }
-    input = input.normalize();
+    if keys.pressed(KeyCode::KeyE) {
+        input.z += 1.0;
+    }
+    if keys.pressed(KeyCode::KeyQ) {
+        input.z -= 1.0;
+    }
+    if input != Vec3::ZERO { input = input.normalize(); }
+    
 
     let move_direction = (right * input.x + forward * input.y).normalize();
 
-    //rotate around this axis to simulate movement
+    //rotate around this axis for movement parallel to the surface
     let axis = up.cross(move_direction);
     let axis_len = axis.length();
 
-    //prevents NAN issues when no input is given
+    //horizontal movement
     if axis_len > 1e-6 {
         let axis_n = axis / axis_len;
         let angle = (MOVE_SPEED * time.delta_secs()) / (PLANET_RADIUS as f32);
         let rotation = Quat::from_axis_angle(axis_n, angle);
         pos = rotation * pos;
+    }
 
-        //make sure we remain on the surface of the planet (corrects any floating point errors)
+    //vertical movement
+    pos += up * input.z * MOVE_SPEED * 0.25 * time.delta_secs();
+
+    //make sure we remain at or above the surface of the planet
+    if pos.length_squared() < (PLANET_RADIUS as f32 + 1.).powi(2) {
         pos = pos.normalize() * (PLANET_RADIUS as f32 + 1.);
+    }
 
-        //update simulated position and rotation
+    //update simulated position and rotation
+    if input != Vec3::ZERO {
         player_info.position = pos.as_dvec3();
 
         let up = pos.normalize();
