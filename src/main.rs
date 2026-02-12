@@ -1,33 +1,34 @@
+use core::f32;
+
+use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
 use bevy::{
     pbr::wireframe::{WireframeConfig, WireframePlugin},
     prelude::*,
     window::{CursorGrabMode, CursorOptions, PresentMode, PrimaryWindow, WindowResolution},
+    input::mouse::AccumulatedMouseMotion
 };
-
-use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
-use bevy_panorbit_camera::{PanOrbitCamera, PanOrbitCameraPlugin};
+use rayon::prelude::*;
 
 const WINDOW_WIDTH: u32 = 960;
 const WINDOW_HEIGHT: u32 = 540;
 const FRAC_PI_4: f32 = std::f32::consts::FRAC_PI_4;
 const MOVE_SPEED: f32 = 10.0;
+const PITCH_LIMIT: f32 = FRAC_PI_4;
 
 fn main() {
     App::new()
         .add_plugins((
-            DefaultPlugins
-                .set(WindowPlugin {
-                    primary_window: Some(Window {
-                        present_mode: PresentMode::Immediate,
-                        title: "Bevy".into(),
-                        resolution: WindowResolution::new(WINDOW_WIDTH, WINDOW_HEIGHT),
-                        position: WindowPosition::Centered(MonitorSelection::Primary),
-                        resizable: false,
-                        ..default()
-                    }),
+            DefaultPlugins.set(WindowPlugin {
+                primary_window: Some(Window {
+                    present_mode: PresentMode::Immediate,
+                    title: "Bevy".into(),
+                    resolution: WindowResolution::new(WINDOW_WIDTH, WINDOW_HEIGHT),
+                    position: WindowPosition::Centered(MonitorSelection::Primary),
+                    resizable: false,
                     ..default()
                 }),
-            PanOrbitCameraPlugin,
+                ..default()
+            }),
             FrameTimeDiagnosticsPlugin::default(),
         ))
         .add_plugins(WireframePlugin { ..default() })
@@ -36,17 +37,19 @@ fn main() {
             ..default()
         })
         .insert_resource(ClearColor(Color::srgb(0.53, 0.81, 0.92)))
-        .add_systems(Startup, (setup, /* enable_auto_indirect.after(setup) */))
+        .add_systems(Startup, (setup /* enable_auto_indirect.after(setup) */,))
         .add_systems(
             Update,
             (
                 grab_mouse,
                 toggle_wireframe,
-                follow_cam,
+                update_cam,
                 player_move,
                 update_fps_text,
+                march_rays
             ),
         )
+        //.add_systems(PostUpdate, march_rays.after(TransformSystems::Propagate))
         .run();
 }
 
@@ -57,12 +60,9 @@ fn setup(
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     // camera
-    commands.spawn((PanOrbitCamera {
-        allow_upside_down: true,
-        radius: Some(15.),
-        axis: [Vec3::X, Vec3::Y, Vec3::NEG_Z],
-        ..default()
-    },));
+    commands.spawn((
+        Camera3d::default(),
+    ));
 
     // lock mouse into window by default
     if let Ok((mut primary_window, mut cursor_options)) = q_window.single_mut() {
@@ -145,15 +145,42 @@ fn toggle_wireframe(key: Res<ButtonInput<KeyCode>>, mut config: ResMut<Wireframe
     }
 }
 
-fn follow_cam(
-    mut pan_orbit_q: Query<&mut PanOrbitCamera>,
-    player_q: Query<&Transform, With<Player>>,
+fn update_cam(
+    camera_q: Single<&mut Transform, With<Camera>>,
+    player_q: Single<&Transform, (With<Player>, Without<Camera>)>,
+    acc_mouse_motion: Res<AccumulatedMouseMotion>,
+    mut mouse: ResMut<ButtonInput<MouseButton>>,
+    cursor_q: Single<&CursorOptions, With<PrimaryWindow>>,
 ) {
-    if let Ok(mut pan_orbit) = pan_orbit_q.single_mut() {
-        if let Ok(player_transform) = player_q.single() {
-            pan_orbit.target_focus = player_transform.translation;
-            pan_orbit.force_update = true;
+    let mut camera_transform = camera_q.into_inner();
+    let cursor_options = *cursor_q;
+    let player_transform = *player_q;
+
+    camera_transform.translation = player_transform.translation + Vec3::new(0.0, 1.75, 0.0);
+    
+    if cursor_options.grab_mode != CursorGrabMode::Locked {
+        mouse.release_all();
+        return;
+    }
+
+    let delta = acc_mouse_motion.delta;
+    if delta != Vec2::ZERO {
+        let yaw_rotation = Quat::from_rotation_y(-delta.x * 0.003);
+        let pitch_rotation = Quat::from_rotation_x(-delta.y * 0.002);
+
+        camera_transform.rotation *= yaw_rotation;
+
+        let possible_pitch = ((camera_transform.rotation
+            * pitch_rotation)
+            * Vec3::NEG_Z)
+            .y
+            .asin();
+        if possible_pitch.abs() < PITCH_LIMIT {
+            camera_transform.rotation *= pitch_rotation;
         }
+        let forward: Vec3 = camera_transform.forward().into();
+        //keep roll at zero
+        camera_transform.look_to(forward, Vec3::Y);
     }
 }
 
@@ -199,12 +226,133 @@ fn player_move(
 fn update_fps_text(
     diagnostics: Res<DiagnosticsStore>,
     mut query: Query<&mut TextSpan, With<FpsText>>,
+    player_q: Query<&Transform, With<Player>>,
 ) {
     if let Ok(mut span) = query.single_mut() {
         if let Some(fps) = diagnostics.get(&FrameTimeDiagnosticsPlugin::FPS)
             && let Some(value) = fps.smoothed()
         {
-            **span = format!("{value:.2}");
+            let pos = if let Ok(player_transform) = player_q.single() {
+                player_transform.translation
+            } else {
+                Vec3::ZERO
+            };
+            let coords = coord(pos);
+            **span = format!("{value:.2}  {coords}");
+        }
+    }
+}
+
+
+
+///converts world position to horizontal voxel coordinates
+fn coord(p: Vec3) -> IVec2 {
+    IVec2::new(
+        p.x.floor() as i32,
+        p.z.floor() as i32,
+    )
+}
+
+//placeholder for a heightmap
+fn get_height(x: i32, z: i32) -> f32 {
+    if (x.pow(2) + z.pow(2)) < 5000*5000 {
+        0.0
+    } else {
+        f32::NEG_INFINITY
+    }
+}
+
+
+///Raymarches in 2D space along the xz plane, testing when the heightmap is collided with
+fn march_rays(
+    camera_query: Single<(&Camera, &GlobalTransform)>, 
+    window: Single<&Window>,
+) {
+    let render_distance_squared = 5000.0 * 5000.0;
+
+
+    let (camera, camera_transform) = *camera_query;
+
+    let indicies: Vec<Vec2> = (0..window.width() as i32)
+        .flat_map(|x| (0..window.height() as i32).map(move |y| Vec2::new(x as f32, y as f32)))
+        .collect();
+
+    let rays: Vec<Ray3d> = indicies
+        .par_iter()
+        .map(|pixel| camera.viewport_to_world(camera_transform, *pixel).unwrap())
+        .collect();
+
+    let testers: Vec<&Ray3d> = rays[0..100000].into_iter().collect();
+
+    testers.into_par_iter().for_each(|ray| traverse(ray, render_distance_squared));
+
+
+
+}
+
+
+fn traverse(ray: &Ray3d, render_distance_squared: f32) {
+    let start_pos = ray.origin.xz();
+    let mut current_voxel: IVec2 = coord(ray.origin);
+    let dir_inv = ray.direction.xz().recip(); 
+    let mut ray_end = ray.origin; //a point at the tip of the ray
+
+    //if the ray is pointing to the right, it will always intersect with the plane at x = voxel.x + 1, otherwise it will intersect with the plane at x = voxel.x
+    // if the ray is pointing forward, it will always intersect with the plane at z = voxel.y + 1, otherwise it will intersect with the plane at z = voxel.y
+    //-z is forward in Bevy
+    let offset = Vec2::new(
+        if ray.direction.x > 0.0 { 1.0 } else { 0.0 },
+        if ray.direction.z < 0.0 { 1.0 } else { 0.0 },
+    );
+
+    let step = IVec2::new(
+        if ray.direction.x > 0.0 { 1 } 
+        else if ray.direction.x < 0.0 { -1 } 
+        else { 0 },
+
+        if ray.direction.z < 0.0 { 1 }
+        else if ray.direction.z > 0.0 { -1 }
+        else { 0 },
+    );
+
+    let mut t = (offset - start_pos) * dir_inv;
+    let delta = ray.direction.xz().recip().abs();
+    
+    //println!("Orign: {:?}", ray.origin);
+
+    //let angle = ray.direction.y.asin();
+    //println!("Angle: {:.2} degrees", angle.to_degrees());
+    loop {
+        //Check for geometry within the current voxel
+        let terrain_height = get_height(current_voxel.x, current_voxel.y);
+        if ray_end.y <= terrain_height {
+            //we have hit the terrain, so we can stop marching
+            //println!("\nHit terrain at final position (  {:.2}, {:.2}, {:.2})", ray_end.x, ray_end.y, ray_end.z);
+            //gizmos.arrow(ray_end, ray_end + Vec3::new(0.0, 2.0, 0.0), Color::BLACK);
+            break;
+        }
+        //Traversal
+        
+
+
+        // see which plane is intersected first
+        if t.x < t.y {
+            //intersected with x plane first
+            current_voxel.x += step.x;
+            t.x += delta.x;
+            ray_end = ray.origin + t.x * ray.direction;
+        } else {
+            //intersected with z plane first
+            current_voxel.y += step.y;
+            t.y += delta.y;
+            ray_end = ray.origin + t.y * ray.direction;
+        }
+
+        //stop after reaching render distnace
+        if ray_end.xz().distance_squared(start_pos) > render_distance_squared {
+            //println!("\nReached render distance at final position ({:.2}, {:.2}, {:.2})", ray_end.x, ray_end.y, ray_end.z);
+            //gizmos.arrow(ray_end, ray_end + Vec3::new(0.0, 2.0, 0.0), Color::BLACK);
+            break;
         }
     }
 }
