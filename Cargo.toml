@@ -1,18 +1,21 @@
 [package]
-name = "secondbevy"
+name = "bevy_18_template"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-bevy = { version = "0.16.1", features = ["dynamic_linking"] } #remove dynamic linking for release version
+bevy = { version = "0.18.0", default-features = false, features = ["3d", "dev"]}
 log = { version = "*", features = ["max_level_debug", "release_max_level_warn"] }
-iyes_perf_ui = "0.5"
+bevy_panorbit_camera = "0.34.0"
 noise = "0.9.0"
-rand = "0.9.0"
-bevy_panorbit_camera = "0.28.0"
 
+# Enable a small amount of optimization in the dev profile.
 [profile.dev]
 opt-level = 1
 
+# Enable a large amount of optimization in the dev profile for dependencies.
 [profile.dev.package."*"]
+opt-level = 3
+
+[profile.release]
 opt-level = 3
