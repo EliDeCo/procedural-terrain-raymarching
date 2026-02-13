@@ -1,4 +1,5 @@
 use core::f32;
+use std::f32::EPSILON;
 
 use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
 use bevy::{
@@ -14,6 +15,8 @@ const WINDOW_HEIGHT: u32 = 540;
 const FRAC_PI_4: f32 = std::f32::consts::FRAC_PI_4;
 const MOVE_SPEED: f32 = 10.0;
 const PITCH_LIMIT: f32 = FRAC_PI_4;
+const VOXEL_SIZE: u32 = 1;
+const INV_VOXEL_SIZE: f32 = 1.0 / VOXEL_SIZE as f32;
 
 fn main() {
     App::new()
@@ -244,67 +247,94 @@ fn update_fps_text(
 }
 
 
-
 ///converts world position to horizontal voxel coordinates
 fn coord(p: Vec3) -> IVec2 {
-    IVec2::new(
-        p.x.floor() as i32,
-        p.z.floor() as i32,
-    )
+    (p.xz() * INV_VOXEL_SIZE).floor().as_ivec2()
 }
 
 //placeholder for a heightmap
 fn get_height(x: i32, z: i32) -> f32 {
-    if (x.pow(2) + z.pow(2)) < 5000*5000 {
-        0.0
-    } else {
-        f32::NEG_INFINITY
-    }
+    let _ = x + z;
+    0.0
 }
-
 
 ///Raymarches in 2D space along the xz plane, testing when the heightmap is collided with
 fn march_rays(
     camera_query: Single<(&Camera, &GlobalTransform)>, 
     window: Single<&Window>,
 ) {
-    let render_distance_squared = 5000.0 * 5000.0;
-
+    let render_distance = 5000.0;
+    let max_height = 10.0;
 
     let (camera, camera_transform) = *camera_query;
 
-    let indicies: Vec<Vec2> = (0..window.width() as i32)
-        .flat_map(|x| (0..window.height() as i32).map(move |y| Vec2::new(x as f32, y as f32)))
-        .collect();
-
-    let rays: Vec<Ray3d> = indicies
-        .par_iter()
-        .map(|pixel| camera.viewport_to_world(camera_transform, *pixel).unwrap())
-        .collect();
-
-    let testers: Vec<&Ray3d> = rays[0..100000].into_iter().collect();
-
-    testers.into_par_iter().for_each(|ray| traverse(ray, render_distance_squared));
-
-
-
+    (0..window.width() as i32)
+        .into_par_iter()
+        .for_each(|x| {
+            for y in 0..window.height() as i32 {
+                let pixel = Vec2::new(x as f32, y as f32);
+                let ray = camera.viewport_to_world(camera_transform, pixel).unwrap();
+                traverse(&ray, render_distance, max_height);
+            }
+        });
 }
 
-
-fn traverse(ray: &Ray3d, render_distance_squared: f32) {
-    let start_pos = ray.origin.xz();
+//TODO: Add correct collision detection with triangle intersection and flyby optimization
+fn traverse(ray: &Ray3d, render_distance: f32, max_height: f32) {
     let mut current_voxel: IVec2 = coord(ray.origin);
-    let dir_inv = ray.direction.xz().recip(); 
-    let mut ray_end = ray.origin; //a point at the tip of the ray
+    let ray_origin_y = ray.origin.y;
+    let mut ray_end_y = ray_origin_y;
+    let ray_dir_y = ray.direction.y;
+    let ray_dir_xz = ray.direction.xz();
+    let tilted_up = if ray_dir_y > 0.0 { true } else { false };
 
-    //if the ray is pointing to the right, it will always intersect with the plane at x = voxel.x + 1, otherwise it will intersect with the plane at x = voxel.x
-    // if the ray is pointing forward, it will always intersect with the plane at z = voxel.y + 1, otherwise it will intersect with the plane at z = voxel.y
-    //-z is forward in Bevy
+    if ray_dir_xz.length_squared() < EPSILON {
+        //near vertical ray
+        //if y is negative, simply find terrain height in the starting voxel and use that as our final value
+        //if y is postive, no collision will happen and skip entirely
+        return; 
+    }
+
+    //collision offest in voxel coordinates
     let offset = Vec2::new(
         if ray.direction.x > 0.0 { 1.0 } else { 0.0 },
         if ray.direction.z < 0.0 { 1.0 } else { 0.0 },
     );
 
+    //the next boundary for collison testing in world coordinates
+    let next_boundary = Vec2::new(
+    (current_voxel.x as f32 + offset.x) * VOXEL_SIZE as f32,
+    (current_voxel.y as f32 + offset.y) * VOXEL_SIZE as f32,
+    );
+
+
+    //must be initalized per component so we can insert INFINITY to avoid NaN
+    let mut t = Vec2::ZERO;
+    let mut delta = Vec2::ZERO;
+
+    // X axis
+    if ray_dir_xz.x != 0.0 {
+        let inv = 1.0 / ray_dir_xz.x;
+        delta.x = VOXEL_SIZE as f32 * inv.abs();
+        t.x = (next_boundary.x - ray.origin.x) * inv;
+    } else {
+        delta.x = f32::INFINITY;
+        t.x = f32::INFINITY;
+    }
+
+    // Z axis
+    if ray_dir_xz.y != 0.0 {
+        let inv = 1.0 / ray_dir_xz.y;
+        delta.y = VOXEL_SIZE as f32 * inv.abs();
+        t.y = (next_boundary.y - ray.origin.z) * inv;
+    } else {
+        delta.y = f32::INFINITY;
+        t.y = f32::INFINITY;
+    }
+
+    let t_max = render_distance / ray_dir_xz.length();
+
+    //which way to step in voxel coordinates
     let step = IVec2::new(
         if ray.direction.x > 0.0 { 1 } 
         else if ray.direction.x < 0.0 { -1 } 
@@ -314,46 +344,49 @@ fn traverse(ray: &Ray3d, render_distance_squared: f32) {
         else if ray.direction.z > 0.0 { -1 }
         else { 0 },
     );
-
-    let mut t = (offset - start_pos) * dir_inv;
-    let delta = ray.direction.xz().recip().abs();
     
-    //println!("Orign: {:?}", ray.origin);
-
-    //let angle = ray.direction.y.asin();
-    //println!("Angle: {:.2} degrees", angle.to_degrees());
+    
     loop {
-        //Check for geometry within the current voxel
-        let terrain_height = get_height(current_voxel.x, current_voxel.y);
-        if ray_end.y <= terrain_height {
+        //If our ray is tilted up and is above the highest known terrain, we can stop marching as it will never collide
+        if tilted_up && ray_end_y > max_height {
+            break;
+        }
+
+        if ray_end_y <= get_height(current_voxel.x, current_voxel.y) {
             //we have hit the terrain, so we can stop marching
-            //println!("\nHit terrain at final position (  {:.2}, {:.2}, {:.2})", ray_end.x, ray_end.y, ray_end.z);
-            //gizmos.arrow(ray_end, ray_end + Vec3::new(0.0, 2.0, 0.0), Color::BLACK);
             break;
         }
         //Traversal
-        
-
-
         // see which plane is intersected first
+        let t_current: f32;
         if t.x < t.y {
             //intersected with x plane first
+            t_current = t.x;
             current_voxel.x += step.x;
             t.x += delta.x;
-            ray_end = ray.origin + t.x * ray.direction;
+            //ray_end = ray.origin + t.x * ray.direction;
+            ray_end_y = ray_origin_y + t_current * ray_dir_y;
+
         } else {
             //intersected with z plane first
+            t_current = t.y;
             current_voxel.y += step.y;
             t.y += delta.y;
-            ray_end = ray.origin + t.y * ray.direction;
+            ray_end_y = ray_origin_y + t_current * ray_dir_y;
         }
 
         //stop after reaching render distnace
-        if ray_end.xz().distance_squared(start_pos) > render_distance_squared {
-            //println!("\nReached render distance at final position ({:.2}, {:.2}, {:.2})", ray_end.x, ray_end.y, ray_end.z);
-            //gizmos.arrow(ray_end, ray_end + Vec3::new(0.0, 2.0, 0.0), Color::BLACK);
+        if t_current > t_max {
             break;
         }
+
+    if t.x.is_nan() || t.y.is_nan() {
+        panic!("NaN in t: {:?}", t);
+    }
+
+    if !t_max.is_finite() {
+        panic!("Bad t_max");
+    }
     }
 }
 
