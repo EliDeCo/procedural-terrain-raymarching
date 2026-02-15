@@ -17,6 +17,11 @@ const PITCH_LIMIT: f32 = FRAC_PI_4;
 const VOXEL_SIZE: f32 = 2.0;
 const INV_VOXEL_SIZE: f32 = 1.0 / VOXEL_SIZE as f32;
 
+//TODO: Simply compute Integer Hash Noise every time height is sampled instead of wasting time and memory on a hashmap lookup
+//TODO: Make your own noise algorithm that uses integers or something
+//TODO: Remove unneccessary tio_arry
+//Todo: Near vertical ray calulations
+
 fn main() {
     App::new()
         .add_plugins((
@@ -39,6 +44,7 @@ fn main() {
             ..default()
         })
         .insert_resource(ClearColor(Color::srgb(0.53, 0.81, 0.92)))
+        .init_resource::<TerrainStore>()
         .add_systems(Startup, (setup /* enable_auto_indirect.after(setup) */,))
         .add_systems(
             Update,
@@ -60,6 +66,7 @@ fn setup(
     mut q_window: Query<(&mut Window, &mut CursorOptions), With<PrimaryWindow>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut terrain_store: ResMut<TerrainStore>,
 ) {
     // camera
     commands.spawn((Camera3d::default(),));
@@ -126,6 +133,18 @@ fn setup(
     commands
         .spawn((Text::new("Fps:"), TextColor(Color::BLACK)))
         .with_child((TextSpan::default(), TextColor(Color::BLACK), FpsText));
+
+    let mut to_add = Vec::new();
+    for x in -4..4 {
+        for y in -4..4 {
+            let coords = IVec2::new(x, y);
+            to_add.push(
+                (coords,QuadInfo::new_simple(coords))
+            );
+        }
+    }
+
+    terrain_store.quad_map.extend(to_add);
 }
 
 fn grab_mouse(
@@ -255,7 +274,7 @@ fn coord(p: Vec3) -> IVec2 {
     (p.xz() * INV_VOXEL_SIZE).floor().as_ivec2()
 }
 
-//placeholder for a heightmap
+//get the height of a given point in world coornates
 fn get_height(x: i32, z: i32) -> f32 {
     let _ = x + z;
     0.0
@@ -266,9 +285,9 @@ fn march_rays(
     camera_query: Single<(&Camera, &GlobalTransform)>,
     window: Single<&Window>,
     mut gizmos: Gizmos,
+    terrain_store: ResMut<TerrainStore>,
 ) {
     //TEMPORARY
-    let render_distance = 5000.0;
     let max_height = 10.0;
 
     let (camera, camera_transform) = *camera_query;
@@ -291,17 +310,25 @@ fn march_rays(
 
     for pixel in pixels {
         let ray = camera.viewport_to_world(camera_transform, pixel).unwrap();
-        traverse(&ray, render_distance, max_height, &mut gizmos);
+        traverse(&ray, max_height, &terrain_store, &mut gizmos);
     }
+    
+    //temporary "rendering"
+    for (_,quad) in &terrain_store.quad_map {
+        let offset = IVec2::new(quad.coords.x as i32, quad.coords.y as i32);
+        let v1 = offset;
+        let v2 = offset + IVec2::new(0, VOXEL_SIZE as i32);
+        let v3 = offset + IVec2::new(VOXEL_SIZE as i32, 0);
+        let v4 = offset + IVec2::new(VOXEL_SIZE as i32, VOXEL_SIZE as i32);
+        
 
-    /* 
-    for x in -4..4 {
-        for z in -4..4 {
-            let _ = QuadInfo::new_simple(IVec2::new(x, z), &mut gizmos);
+        for edge in [(v1,v2),(v3,v4),(v1,v4),(v1,v3),(v2,v4)] {
+            let start = Vec3::new(edge.0.x as f32, 0.0, edge.0.y as f32);
+            let end = Vec3::new(edge.1.x as f32, 0.0, edge.1.y as f32);
+            gizmos.line(start, end, Color::BLACK);
         }
     }
-    */
-    
+
     //fastest method
     /*
     (0..window.width() as i32)
@@ -316,30 +343,7 @@ fn march_rays(
     */
 }
 
-//TODO: Add correct collision detection with triangle intersection and flyby optimization
-//Store a hashmap of voxels, with (x,z) mapping to
-//  max height
-// (v1, v2, v3)
-// (v4, v5, v6)
-//make sure when adding new voxels, you test the vertex positions of adjacent voxels and use those instead of
-//recomputing from noise to avoid floating point errors
-
-//There's a Rust implimentation of the Möller–Trumbore intersection algorithm
-// here: https://en.wikipedia.org/wiki/M%C3%B6ller%E2%80%93Trumbore_intersection_algorithm
-// if we go this route we should precompute and cache:
-//  edge 1
-//  edge 2
-//
-
-//Fastest known method with precomputations is Havel & Herut Method
-//here https://ieeexplore.ieee.org/abstract/document/5159346
-//Some guys implimentation https://stackoverflow.com/questions/13163129/ray-triangle-intersection
-//for this method, precompute:
-// the plane equation
-// inverse triangle area squared
-// barycentric coefficient planes
-
-fn traverse(ray: &Ray3d, render_distance: f32, max_height: f32, gizmos: &mut Gizmos) {
+fn traverse(ray: &Ray3d, max_height: f32, terrain_store: &TerrainStore, gizmos: &mut Gizmos) {
     let mut current_voxel: IVec2 = coord(ray.origin);
     let ray_origin_y = ray.origin.y;
     let mut ray_end_y = ray_origin_y;
@@ -348,16 +352,20 @@ fn traverse(ray: &Ray3d, render_distance: f32, max_height: f32, gizmos: &mut Giz
     let tilted_up = if ray_dir_y > 0.0 { true } else { false };
 
     if ray_dir_xz.length_squared() < EPSILON {
-        //near vertical ray
-        //if y is negative, simply find terrain height in the starting voxel and use that as our final value
         //if y is postive, no collision will happen and skip entirely
+        if ray_dir_y.is_sign_positive() { return; }
+
+        
+        //if y is negative, simply find terrain height in the starting voxel and use that as our final value
+        //TODO: IMPLIMENT THIS
+        info!("Vertical ray");
         return;
     }
 
     //collision offest in voxel coordinates
     let offset = Vec2::new(
         if ray.direction.x > 0.0 { 1.0 } else { 0.0 },
-        if ray.direction.z < 0.0 { 1.0 } else { 0.0 },
+        if ray.direction.z > 0.0 { 1.0 } else { 0.0 },
     );
 
     //the next boundary for collison testing in world coordinates
@@ -390,8 +398,6 @@ fn traverse(ray: &Ray3d, render_distance: f32, max_height: f32, gizmos: &mut Giz
         t.y = f32::INFINITY;
     }
 
-    let t_max = render_distance / ray_dir_xz.length();
-
     //which way to step in voxel coordinates
     let step = IVec2::new(
         if ray.direction.x > 0.0 {
@@ -401,9 +407,9 @@ fn traverse(ray: &Ray3d, render_distance: f32, max_height: f32, gizmos: &mut Giz
         } else {
             0
         },
-        if ray.direction.z < 0.0 {
+        if ray.direction.z > 0.0 {
             1
-        } else if ray.direction.z > 0.0 {
+        } else if ray.direction.z < 0.0 {
             -1
         } else {
             0
@@ -417,44 +423,44 @@ fn traverse(ray: &Ray3d, render_distance: f32, max_height: f32, gizmos: &mut Giz
             break;
         }
 
-        if ray_end_y <= get_height(current_voxel.x, current_voxel.y) {
-            //we have hit the terrain, so we can stop marching
+        //collision detection
+        let t_next = t.x.min(t.y);
+
+        let enter_point = ray.origin + ray.direction * t_current;
+        let exit_point  = ray.origin + ray.direction * t_next;
+
+        //TODO: OUTSIDE RENDER DISTANCE ERROR! WE ARE GETTING NONE WERE THE VOXEL SHOULD BE SOME
+        if let Some(voxel) = terrain_store.quad_map.get(&current_voxel) {
+            if let Some(point) = voxel.intersect(enter_point, exit_point, ray) {
+                //ray has hit terrain
+                gizmos.sphere(Isometry3d::from_translation(point), 0.25, Color::BLACK);
+                break;
+            }
+        } else {
+            //we are outside of currently rendered chunks (aka past render distance)
+            gizmos.sphere(Isometry3d::from_translation(enter_point), 0.15, Color::WHITE);
             break;
         }
+
+
+
         //Traversal
         // see which plane is intersected first
 
         if t.x < t.y {
             //intersected with x plane first
-            t_current = t.x;
             current_voxel.x += step.x;
             t.x += delta.x;
-            //ray_end = ray.origin + t.x * ray.direction;
-            ray_end_y = ray_origin_y + t_current * ray_dir_y;
         } else {
             //intersected with z plane first
-            t_current = t.y;
             current_voxel.y += step.y;
             t.y += delta.y;
-            ray_end_y = ray_origin_y + t_current * ray_dir_y;
+            
         }
 
-        //stop after reaching render distnace
-        if t_current > t_max {
-            break;
-        }
-
-        if t.x.is_nan() || t.y.is_nan() {
-            panic!("NaN in t: {:?}", t);
-        }
-
-        if !t_max.is_finite() {
-            panic!("Bad t_max");
-        }
+        t_current = t_next;
+        ray_end_y = ray_origin_y + t_current * ray_dir_y;
     }
-
-    let final_pos = ray.origin + t_current * ray.direction;
-    gizmos.sphere(Isometry3d::from_translation(final_pos), 0.25, Color::BLACK);
 }
 
 ///used for identifying the player entity
@@ -474,9 +480,37 @@ pub struct PlanetMaterial(pub Handle<StandardMaterial>);
 struct FpsText;
 
 ///Struct for holding all currently relevant terrain data
+#[derive(Resource, Default)]
 struct TerrainStore {
-    highest: f32,
-    quads: HashMap<(i32, i32), QuadInfo>,
+    quad_map: HashMap<IVec2, QuadInfo>,
+}
+
+impl TerrainStore {
+    ///Tests if any of the recently added quads have a higher max height than the current value,
+    /// and updates accordingly
+    fn add_test(added: &[QuadInfo], max_height: &mut MaxHeight) {
+        let max_added = added.iter().map(|q| q.y_max).reduce(f32::max).unwrap_or(0.0);
+        if max_added > max_height.0 {
+            max_height.0 = max_added;
+        }
+    }
+
+    ///Tests if the quad with the largest max height was removed, and
+    /// updates accordingly
+    fn remove_test(&self, removed: &[QuadInfo], max_height: &mut MaxHeight) {
+        for quad in removed {
+            if quad.y_max == max_height.0 {
+                max_height.0 = self
+                    .quad_map
+                    .iter()
+                    .map(|(_, q)| q.y_max)
+                    .reduce(f32::min)
+                    .unwrap_or(0.0);
+                break;
+            }
+        }
+
+    }
 }
 
 ///Plane struct optimized for ray-plane intersection
@@ -485,9 +519,9 @@ struct SimplePlane {
     d: f32,  // plane constant
 }
 
-///Stores all relevant information of a quad for ray intersection calculaters
+///Stores all relevant information of a quad for ray intersection calculations
 struct QuadInfo {
-    coords: Vec2, //coordinates of the vertex with the lowest (x,z) values
+    coords: Vec2, //coordinates of the vertex with the lowest (closest to negative infinity) x and z values in world space
     upper: SimplePlane,
     lower: SimplePlane,
     y_max: f32,
@@ -496,26 +530,13 @@ struct QuadInfo {
 
 impl QuadInfo {
     ///Creates a new quad of a given size, with a given offset in voxel coordinates
-    /// By default, the bottom left vertex (pos z, neg x) will be at the origin
-    fn new_simple(offset: IVec2, g: &mut Gizmos) -> Self {
+    fn new_simple(offset: IVec2) -> Self {
         let offset = VOXEL_SIZE as i32 * offset;
         let v1 = offset.to_array();
         let v2 = (offset + IVec2::new(0, VOXEL_SIZE as i32)).to_array();
         let v3 = (offset + IVec2::new(VOXEL_SIZE as i32, 0)).to_array();
         let v4 = (offset + IVec2::new(VOXEL_SIZE as i32, VOXEL_SIZE as i32)).to_array();
 
-        //for testing
-        for v in [v1, v2, v3, v4] {
-            g.sphere(
-                Isometry3d::from_translation(Vec3::new(
-                    v[0] as f32,
-                    0.0,
-                    v[1] as f32,
-                )),
-                0.05,
-                Color::BLACK,
-            );
-        }
 
         return QuadInfo::new([v1, v2, v3, v4]);
     }
@@ -531,10 +552,10 @@ impl QuadInfo {
         let coords = Vec2::new(min_x as f32, min_z as f32);
 
         // Heights at the 4 corners
-        let y0 = get_height(min_x, min_z); // lower-left (local 0,0)
-        let y1 = get_height(max_x, min_z); // lower-right (local VOXEL_SIZE, 0)
-        let y2 = get_height(min_x, max_z); // upper-left (local 0, VOXEL_SIZE)
-        let y3 = get_height(max_x, max_z); // upper-right (local VOXEL_SIZE, VOXEL_SIZE)
+        let y0 = get_height(min_x, min_z);
+        let y1 = get_height(max_x, min_z);
+        let y2 = get_height(min_x, max_z);
+        let y3 = get_height(max_x, max_z);
 
         // Compute min/max Y
         let y_max = y0.max(y1).max(y2).max(y3);
@@ -569,19 +590,23 @@ impl QuadInfo {
         }
     }
 
-    ///Returns the point where a 3d ray intersects with terrain generated by a heightmap stored as quads
+    ///Returns the point where a 3d ray intersects with terrain generated by a heightmap stored as quads (if it exists)
     fn intersect(&self, enter_point: Vec3, exit_point: Vec3, ray: &Ray3d) -> Option<Vec3> {
+        /* 
         if (enter_point.y > self.y_max && exit_point.y > self.y_max)
             || (enter_point.y < self.y_min && exit_point.y < self.y_min)
         {
+            info!("Fully above or below");
             return None; //fully above terrain or below terrain
         }
+        */
 
         //convert to local
         let local_enter_x = enter_point.x - self.coords.x;
         let local_enter_z = enter_point.z - self.coords.y;
 
         //does the ray enter from the bottom or left?
+        //if so test the lower triangle first
         if local_enter_x.abs() < f32::EPSILON || local_enter_z.abs() < f32::EPSILON {
             if let Some(point) = self.test_lower(ray) {
                 return Some(point);
@@ -678,3 +703,7 @@ fn classify(point: Vec2) -> Option<bool> {
 
     Some(x + z <= VOXEL_SIZE) // true = lower, false = upper
 }
+
+#[derive(Resource)]
+///The highest currently relevant terrain
+struct MaxHeight(f32);
