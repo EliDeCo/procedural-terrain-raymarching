@@ -351,14 +351,23 @@ fn traverse(ray: &Ray3d, max_height: f32, terrain_store: &TerrainStore, gizmos: 
     let ray_dir_xz = ray.direction.xz();
     let tilted_up = if ray_dir_y > 0.0 { true } else { false };
 
+    //Near vertical ray
     if ray_dir_xz.length_squared() < EPSILON {
         //if y is postive, no collision will happen and skip entirely
         if ray_dir_y.is_sign_positive() { return; }
 
         
         //if y is negative, simply find terrain height in the starting voxel and use that as our final value
-        //TODO: IMPLIMENT THIS
-        info!("Vertical ray");
+        if let Some(voxel) = terrain_store.quad_map.get(&current_voxel) {
+            if let Some(point) = voxel.test_lower(ray) {
+                gizmos.sphere(Isometry3d::from_translation(point), 0.25, Color::BLACK);
+            } else if let Some(point) = voxel.test_upper(ray) {
+                gizmos.sphere(Isometry3d::from_translation(point), 0.25, Color::BLACK);
+            } else {
+                info!("We missed");
+            }
+        } 
+        info!("You shouldn't be here");
         return;
     }
 
@@ -429,7 +438,7 @@ fn traverse(ray: &Ray3d, max_height: f32, terrain_store: &TerrainStore, gizmos: 
         let enter_point = ray.origin + ray.direction * t_current;
         let exit_point  = ray.origin + ray.direction * t_next;
 
-        //TODO: OUTSIDE RENDER DISTANCE ERROR! WE ARE GETTING NONE WERE THE VOXEL SHOULD BE SOME
+
         if let Some(voxel) = terrain_store.quad_map.get(&current_voxel) {
             if let Some(point) = voxel.intersect(enter_point, exit_point, ray) {
                 //ray has hit terrain
