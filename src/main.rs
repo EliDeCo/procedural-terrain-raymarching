@@ -377,17 +377,16 @@ fn traverse(
         }
 
         //if y is negative, simply find terrain height in the starting voxel and use that as our final value
-        /*
         if let Some(voxel) = terrain_store.quad_map.get(&current_voxel) {
-            if let Some(point) = voxel.test_lower(ray) {
-                gizmos.sphere(Isometry3d::from_translation(point), 0.25, Color::BLACK);
-            } else if let Some(point) = voxel.test_upper(ray) {
-                gizmos.sphere(Isometry3d::from_translation(point), 0.25, Color::BLACK);
+            if let Some(_) = voxel.check_lower(ray) {
+                //gizmos.sphere(Isometry3d::from_translation(point), 0.25, Color::BLACK);
+            } else if let Some(_) = voxel.check_upper(ray) {
+                //gizmos.sphere(Isometry3d::from_translation(point), 0.25, Color::BLACK);
             } else {
                 info!("We missed");
             }
         }
-        */
+
         info!("You shouldn't be here");
         return;
     }
