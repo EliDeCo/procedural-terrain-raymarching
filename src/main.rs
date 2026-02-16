@@ -721,12 +721,19 @@ impl QuadInfo {
         */
 
         //check lower first
-        if let Some(point) = self.check_lower(ray) {
-            return Some(point);
-        } else if let Some(point) = self.check_upper(ray) {
-            return Some(point);
+        if enter_point.z < exit_point.z || enter_point.x < exit_point.x {
+            if let Some(point) = self.check_lower(ray) {
+                return Some(point);
+            } else {
+                return self.check_upper(ray);
+            }
+        //check upper first
         } else {
-            return None;
+            if let Some(point) = self.check_upper(ray) {
+                return Some(point);
+            } else {
+                return self.check_lower(ray);
+            }
         }
     }
 
