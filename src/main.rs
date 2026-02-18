@@ -20,11 +20,11 @@ const VOXEL_SIZE: f32 = VOXEL_SIZE_INPUT as f32;
 const INV_VOXEL_SIZE: f32 = 1.0 / VOXEL_SIZE;
 const EPS: f32 = 1e-5;
 const RENDER_DIST_VOXELS: i32 = (RENDER_DISTANCE / VOXEL_SIZE) as i32;
-const VOXEL_RENDER_SQUARED: i32 = RENDER_DIST_VOXELS * RENDER_DIST_VOXELS;
 const BUFFER_SIZE: i32 = RENDER_DIST_VOXELS as i32 * 2;
 
+
+//TODO: PUT IT ON THE GRAPHICS CARD
 //TODO: Impliment "sphere" tracing but subtract 1 voxel length to avoid overshoot
-//TODO: Fix vertical rays (again)
 
 fn main() {
     App::new()
@@ -281,7 +281,7 @@ fn march_rays(
     let (camera, camera_transform) = *camera_query;
 
     //for testing
-
+    /* 
     let width = window.width();
     let height = window.height();
     let row1 = height * 0.6;
@@ -303,7 +303,7 @@ fn march_rays(
         let ray = camera.viewport_to_world(camera_transform, pixel).unwrap();
         traverse(&ray, max_height.0, &terrain_store, &mut gizmos);
     }
-
+    */
     /* 
     //temporary "rendering"
     for quad in &terrain_store.quad_buffer {
@@ -336,18 +336,18 @@ fn march_rays(
     */
 
     //fastest method
-    /*
+
     (0..window.width() as i32).into_par_iter().for_each(|x| {
         for y in 0..window.height() as i32 {
             let pixel = Vec2::new(x as f32, y as f32);
             let ray = camera.viewport_to_world(camera_transform, pixel).unwrap();
-            traverse(&ray, max_height.0, &mut terrain_store);
+            traverse(&ray, max_height.0, &terrain_store);
         }
     });
-    */
+
 }
 
-fn traverse(ray: &Ray3d, max_height: f32, terrain_store: &TerrainStore, gizmos: &mut Gizmos) {
+fn traverse(ray: &Ray3d, max_height: f32, terrain_store: &TerrainStore, /*gizmos: &mut Gizmos*/) {
     let ray_dir_xz = ray.direction.xz();
     let t_max = RENDER_DISTANCE / ray_dir_xz.length();
     let mut current_voxel: IVec2 = coord(ray.origin);
@@ -381,9 +381,9 @@ fn traverse(ray: &Ray3d, max_height: f32, terrain_store: &TerrainStore, gizmos: 
         let idx = get_index(current_voxel.x, current_voxel.y);
         let voxel = &terrain_store.quad_buffer[idx];
         if let Some(point) = voxel.check_lower(ray) {
-            gizmos.sphere(Isometry3d::from_translation(point), 0.25, Color::BLACK);
+            //gizmos.sphere(Isometry3d::from_translation(point), 0.25, Color::BLACK);
         } else if let Some(point) = voxel.check_upper(ray) {
-            gizmos.sphere(Isometry3d::from_translation(point), 0.25, Color::BLACK);
+            //gizmos.sphere(Isometry3d::from_translation(point), 0.25, Color::BLACK);
         } else {
             info!("We missed! That should be impossible!");
         }
@@ -449,7 +449,7 @@ fn traverse(ray: &Ray3d, max_height: f32, terrain_store: &TerrainStore, gizmos: 
         //If our ray is tilted up and is above the highest known terrain, we can stop marching as it will never collide
         if tilted_up && ray_end_y > max_height {
             let end_point = ray.origin + ray.direction * t_current;
-            gizmos.sphere(Isometry3d::from_translation(end_point), 0.05, Color::BLACK);
+            //gizmos.sphere(Isometry3d::from_translation(end_point), 0.05, Color::BLACK);
             break;
         }
 
@@ -466,7 +466,7 @@ fn traverse(ray: &Ray3d, max_height: f32, terrain_store: &TerrainStore, gizmos: 
             terrain_store.quad_buffer[idx].intersect(enter_point, exit_point, ray /*gizmos*/)
         {
             //ray has hit terrain
-            gizmos.sphere(Isometry3d::from_translation(point), 0.25, Color::BLACK);
+            //gizmos.sphere(Isometry3d::from_translation(point), 0.25, Color::BLACK);
             break;
         }
 
@@ -514,6 +514,7 @@ struct FpsText;
 #[derive(Resource)]
 struct TerrainStore {
     quad_buffer: Box<[QuadInfo]>,
+    initialized: bool,
 }
 
 impl Default for TerrainStore {
@@ -522,6 +523,7 @@ impl Default for TerrainStore {
             quad_buffer: (0..(BUFFER_SIZE * BUFFER_SIZE))
                 .map(|_| QuadInfo::default())
                 .collect(),
+            initialized: false,
         }
     }
 }
@@ -729,39 +731,70 @@ fn update_terrain(
     mut max_height: ResMut<MaxHeight>,
     time: Res<Time>,
 ) {
-
-    //only do this if player is moving
+    let need_init = !terrain_store.initialized;
     let (player_transform, player) = player_q.into_inner();
-    if !player.moving { return; }
-
     let player_voxel = coord(player_transform.translation);
     let mut max_added = 0.;
 
+    let mut update_voxel = |x: i32, z: i32| {
+        let idx = get_index(x, z);
+        let voxel_coords = IVec2::new(x, z);
 
+        // Only generate if stale
+        if terrain_store.quad_buffer[idx].voxel_coords != voxel_coords {
+            let new_quad = QuadInfo::new_simple(voxel_coords, &noise);
 
-    // Load voxels within render distance
-    for z in (player_voxel.y - RENDER_DIST_VOXELS)..(player_voxel.y + RENDER_DIST_VOXELS) {
-        for x in (player_voxel.x - RENDER_DIST_VOXELS)..(player_voxel.x + RENDER_DIST_VOXELS) {
-            //if outside circular render distance, don't worry about it
-            let dx = x - player_voxel.x;
-            let dz = z - player_voxel.y;
-            if dx * dx + dz * dz > VOXEL_RENDER_SQUARED {
-                continue;
-            };
-
-            let idx = get_index(x, z);
-            let voxel_coords = IVec2::new(x, z);
-
-            // Only generate if stale
-            if terrain_store.quad_buffer[idx].voxel_coords != voxel_coords {
-                let new_quad = QuadInfo::new_simple(voxel_coords, &noise);
-
-                if new_quad.y_max > max_added {
-                    max_added = new_quad.y_max;
-                }
-
-                terrain_store.quad_buffer[idx] = new_quad;
+            if new_quad.y_max > max_added {
+                max_added = new_quad.y_max;
             }
+
+            terrain_store.quad_buffer[idx] = new_quad;
+        }
+    };
+
+    //if just started, generate all voxels
+    if need_init {
+        for z in (player_voxel.y - RENDER_DIST_VOXELS)..(player_voxel.y + RENDER_DIST_VOXELS) {
+            for x in (player_voxel.x - RENDER_DIST_VOXELS)..(player_voxel.x + RENDER_DIST_VOXELS) {
+                update_voxel(x,z);
+            }
+        }
+        terrain_store.initialized = true;
+        max_height.0 = max_added; 
+        return;
+    }
+
+    //only do this if player is moving
+    if !player.moving { return; }
+
+    //Only check the edges for updating
+    let voxels_per_frame = ((MOVE_SPEED * time.delta_secs()) * INV_VOXEL_SIZE).ceil() as i32;
+
+    // Top strip (outer edge)
+    for z in (player_voxel.y + RENDER_DIST_VOXELS - voxels_per_frame)..(player_voxel.y + RENDER_DIST_VOXELS) {
+        for x in (player_voxel.x - RENDER_DIST_VOXELS)..(player_voxel.x + RENDER_DIST_VOXELS) {
+            update_voxel(x,z);
+        }
+    }
+
+    // Bottom strip (outer edge)
+    for z in (player_voxel.y - RENDER_DIST_VOXELS)..(player_voxel.y - RENDER_DIST_VOXELS + voxels_per_frame) {
+        for x in (player_voxel.x - RENDER_DIST_VOXELS)..(player_voxel.x + RENDER_DIST_VOXELS) {
+            update_voxel(x,z);
+        }
+    }
+
+    // Left strip (exclude corners already covered by top/bottom)
+    for z in (player_voxel.y - RENDER_DIST_VOXELS + voxels_per_frame)..(player_voxel.y + RENDER_DIST_VOXELS - voxels_per_frame) {
+        for x in (player_voxel.x - RENDER_DIST_VOXELS)..(player_voxel.x - RENDER_DIST_VOXELS + voxels_per_frame) {
+            update_voxel(x,z);
+        }
+    }
+
+    // Right strip (exclude corners already covered by top/bottom)
+    for z in (player_voxel.y - RENDER_DIST_VOXELS + voxels_per_frame)..(player_voxel.y + RENDER_DIST_VOXELS - voxels_per_frame) {
+        for x in (player_voxel.x + RENDER_DIST_VOXELS - voxels_per_frame)..(player_voxel.x + RENDER_DIST_VOXELS) {
+            update_voxel(x,z);
         }
     }
 
@@ -770,6 +803,7 @@ fn update_terrain(
     }
 
     //recompute (roughly) every 5(ish) seconds incase max was removed
+    //so its kind inaccurate so it just runs whenever but that works
     if (time.elapsed_secs() * 1000.0) as u64 % 5000 == 0 {
         println!("Recomputing");
         max_height.0 = terrain_store
