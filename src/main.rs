@@ -1,7 +1,5 @@
-use std::{collections::HashMap, f32::EPSILON};
-
-use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
 use bevy::{
+    diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin},
     input::mouse::AccumulatedMouseMotion,
     pbr::wireframe::{WireframeConfig, WireframePlugin},
     prelude::*,
@@ -10,18 +8,19 @@ use bevy::{
 use noise::{NoiseFn, Perlin};
 use rayon::prelude::*;
 
-const VOXEL_SIZE_INPUT: u32 = 2;
-
+const VOXEL_SIZE_INPUT: u32 = 8;
+const RENDER_DISTANCE: f32 = 5000.;
 const WINDOW_WIDTH: u32 = 960;
 const WINDOW_HEIGHT: u32 = 540;
-const FRAC_PI_4: f32 = std::f32::consts::FRAC_PI_4;
 const MOVE_SPEED: f32 = 10.0;
+
+const FRAC_PI_4: f32 = std::f32::consts::FRAC_PI_4;
 const PITCH_LIMIT: f32 = FRAC_PI_4;
 const VOXEL_SIZE: f32 = VOXEL_SIZE_INPUT as f32;
 const INV_VOXEL_SIZE: f32 = 1.0 / VOXEL_SIZE;
 const EPS: f32 = 1e-5;
-const RENDER_DISTANCE: f32 = 50.;
 const RENDER_DIST_VOXELS: i32 = (RENDER_DISTANCE / VOXEL_SIZE) as i32;
+const VOXEL_RENDER_SQUARED: i32 = RENDER_DIST_VOXELS * RENDER_DIST_VOXELS;
 const BUFFER_SIZE: i32 = RENDER_DIST_VOXELS as i32 * 2;
 
 //TODO: Impliment "sphere" tracing but subtract 1 voxel length to avoid overshoot
@@ -50,7 +49,7 @@ fn main() {
         })
         .insert_resource(ClearColor(Color::srgb(0.53, 0.81, 0.92)))
         .init_resource::<TerrainStore>()
-        .add_systems(Startup, (setup, /*init_terrain.after(setup)*/))
+        .add_systems(Startup, (setup /*init_terrain.after(setup)*/,))
         .add_systems(
             Update,
             (
@@ -102,6 +101,7 @@ fn setup(
             forward: Vec3::NEG_Z,
             up: Vec3::Y,
             right: Vec3::X,
+            moving: true
         },
     ));
 
@@ -116,22 +116,6 @@ fn setup(
     });
 
     commands.insert_resource(PlanetMaterial(planet_material.clone()));
-
-    //terrain base
-    /*
-    commands.spawn((
-        Mesh3d(
-            meshes.add(
-                Plane3d::default()
-                    .mesh()
-                    .size(20.0, 20.)
-                    .subdivisions(9)
-                    .build(),
-            ),
-        ),
-        MeshMaterial3d(planet_material),
-    ));
-    */
 
     //fps text
     commands
@@ -152,30 +136,6 @@ fn setup(
 fn get_index(x: i32, z: i32) -> usize {
     positive_mod(z, BUFFER_SIZE) * BUFFER_SIZE as usize + positive_mod(x, BUFFER_SIZE)
 }
-/* 
-fn init_terrain(noise: Res<NoiseStore>, mut terrain_store: ResMut<TerrainStore>) {
-    //spawn terrain
-    for x in -RENDER_DIST_VOXELS..RENDER_DIST_VOXELS {
-        for z in RENDER_DIST_VOXELS..RENDER_DIST_VOXELS {
-            let idx = get_index(x, z);
-            terrain_store.quad_buffer[idx] = QuadInfo::default();
-            //to_add.push((coords, QuadInfo::new_simple(coords, &noise)));           
-        }
-    }
-
-    /* 
-    let mut to_add = Vec::new();
-    for x in -32..32 {
-        for y in -32..32 {
-            let coords = IVec2::new(x, y);
-            to_add.push((coords, QuadInfo::new_simple(coords, &noise)));
-        }
-    }
-
-    terrain_store.quad_map.extend(to_add);
-    */
-}
-    */
 
 fn grab_mouse(
     mut q_window: Query<(&mut Window, &mut CursorOptions), With<PrimaryWindow>>,
@@ -245,7 +205,7 @@ fn player_move(
     keys: Res<ButtonInput<KeyCode>>,
     mut player_q: Query<(&mut Player, &mut Transform)>,
 ) {
-    if let Ok((player, mut player_transform)) = player_q.single_mut() {
+    if let Ok((mut player, mut player_transform)) = player_q.single_mut() {
         let mut input = Vec3::ZERO;
         if keys.pressed(KeyCode::KeyW) {
             input.y += 1.0;
@@ -274,6 +234,9 @@ fn player_move(
 
         if input.length_squared() > 1e-6 {
             player_transform.translation += move_direction * MOVE_SPEED * time.delta_secs();
+            player.moving = true;
+        } else {
+            player.moving = false;
         }
     }
 }
@@ -301,7 +264,9 @@ fn update_fps_text(
 
 //get the height of a given point in world coornates
 fn get_height(x: i32, z: i32, noise: &NoiseStore) -> f32 {
-    noise.basic_perlin.get([x as f64 + FRAC_PI_4 as f64, z as f64 + FRAC_PI_4 as f64]) as f32
+    noise
+        .basic_perlin
+        .get([x as f64 + FRAC_PI_4 as f64, z as f64 + FRAC_PI_4 as f64]) as f32
 }
 
 ///Raymarches in 2D space along the xz plane, testing when the heightmap is collided with
@@ -332,7 +297,6 @@ fn march_rays(
         })
         .collect();
 
-
     //let pixels = [Vec2::new(width / 2., row2)];
 
     for pixel in pixels {
@@ -340,8 +304,8 @@ fn march_rays(
         traverse(&ray, max_height.0, &terrain_store, &mut gizmos);
     }
 
+    /* 
     //temporary "rendering"
-    //for (_, quad) in &terrain_store.quad_map {
     for quad in &terrain_store.quad_buffer {
         let coords = IVec2::new(quad.world_coords.x as i32, quad.world_coords.y as i32);
         let v0 = coords;
@@ -366,12 +330,13 @@ fn march_rays(
                 get_height(edge.1.x, edge.1.y, &noise),
                 edge.1.y as f32,
             );
-            gizmos.line(start, end, Color::BLACK);
+            gizmos.line(start, end, Color::WHITE);
         }
     }
+    */
 
     //fastest method
-    /* 
+    /*
     (0..window.width() as i32).into_par_iter().for_each(|x| {
         for y in 0..window.height() as i32 {
             let pixel = Vec2::new(x as f32, y as f32);
@@ -382,38 +347,46 @@ fn march_rays(
     */
 }
 
-fn traverse(
-    ray: &Ray3d,
-    max_height: f32,
-    terrain_store: &TerrainStore, 
-    gizmos: &mut Gizmos,
-) {
+fn traverse(ray: &Ray3d, max_height: f32, terrain_store: &TerrainStore, gizmos: &mut Gizmos) {
+    let ray_dir_xz = ray.direction.xz();
+    let t_max = RENDER_DISTANCE / ray_dir_xz.length();
     let mut current_voxel: IVec2 = coord(ray.origin);
     let ray_origin_y = ray.origin.y;
     let mut ray_end_y = ray_origin_y;
     let ray_dir_y = ray.direction.y;
-    let ray_dir_xz = ray.direction.xz();
+
     let tilted_up = if ray_dir_y > 0.0 { true } else { false };
 
+    if ray_origin_y > max_height {
+        // Ray pointing up or horizontal while above max height, will never hit terrain
+        if ray_dir_y >= 0.0 {
+            return;
+        }
+
+        // Ray pointing down - if it won't dip below max height until outside of render distance, will never hit terrain
+        let t_to_max_height = (max_height - ray_origin_y) / ray_dir_y;
+        if t_to_max_height > t_max {
+            return;
+        }
+    }
+
     //Near vertical ray
-    if ray_dir_xz.length_squared() < EPSILON {
+    if ray_dir_xz.length_squared() < EPS {
         //if y is postive, no collision will happen and skip entirely
         if ray_dir_y.is_sign_positive() {
             return;
         }
-        /* 
+
         //if y is negative, simply find terrain height in the starting voxel and use that as our final value
-        if let Some(voxel) = terrain_store.quad_map.get(&current_voxel) {
-            if let Some(_) = voxel.check_lower(ray) {
-                //gizmos.sphere(Isometry3d::from_translation(point), 0.25, Color::BLACK);
-            } else if let Some(_) = voxel.check_upper(ray) {
-                //gizmos.sphere(Isometry3d::from_translation(point), 0.25, Color::BLACK);
-            } else {
-                info!("We missed");
-            }
+        let idx = get_index(current_voxel.x, current_voxel.y);
+        let voxel = &terrain_store.quad_buffer[idx];
+        if let Some(point) = voxel.check_lower(ray) {
+            gizmos.sphere(Isometry3d::from_translation(point), 0.25, Color::BLACK);
+        } else if let Some(point) = voxel.check_upper(ray) {
+            gizmos.sphere(Isometry3d::from_translation(point), 0.25, Color::BLACK);
+        } else {
+            info!("We missed! That should be impossible!");
         }
-        */
-        info!("You shouldn't be here");
         return;
     }
 
@@ -471,13 +444,12 @@ fn traverse(
         },
     );
 
-    let t_max = RENDER_DISTANCE / ray_dir_xz.length();
     let mut t_current = 0.0;
     loop {
         //If our ray is tilted up and is above the highest known terrain, we can stop marching as it will never collide
         if tilted_up && ray_end_y > max_height {
-            //let end_point = ray.origin + ray.direction * t_current;
-            //gizmos.sphere(Isometry3d::from_translation(end_point), 0.05, Color::BLACK);
+            let end_point = ray.origin + ray.direction * t_current;
+            gizmos.sphere(Isometry3d::from_translation(end_point), 0.05, Color::BLACK);
             break;
         }
 
@@ -490,38 +462,17 @@ fn traverse(
         //current_voxel is of type IVec2. current_voxel.y corresponds to its z coordinate
         let idx = get_index(current_voxel.x, current_voxel.y);
 
-        if let Some(point) = terrain_store.quad_buffer[idx].intersect(enter_point, exit_point, ray /*gizmos*/) {
+        if let Some(point) =
+            terrain_store.quad_buffer[idx].intersect(enter_point, exit_point, ray /*gizmos*/)
+        {
             //ray has hit terrain
-            //println!("Intersected with voxel {}, world ({})", INV_VOXEL_SIZE * voxel.world_coords, voxel.world_coords);
             gizmos.sphere(Isometry3d::from_translation(point), 0.25, Color::BLACK);
             break;
         }
 
-
-        /* 
-        if let Some(voxel) = terrain_store.quad_map.get(&current_voxel) {
-            if let Some(_) = voxel.intersect(enter_point, exit_point, ray /*gizmos*/) {
-                //ray has hit terrain
-                //println!("Intersected with voxel {}, world ({})", INV_VOXEL_SIZE * voxel.world_coords, voxel.world_coords);
-                //gizmos.sphere(Isometry3d::from_translation(point), 0.25, Color::BLACK);
-                break;
-            }
-        } else {
-            //we are outside of currently rendered chunks (aka past render distance)
-            /*
-            gizmos.sphere(
-                Isometry3d::from_translation(enter_point),
-                0.15,
-                Color::WHITE,
-            );
-            */
-            break;
-        }
-        */
-
         //Traversal
-        // see which plane is intersected first
 
+        // see which plane is intersected first
         if t.x < t.y {
             //intersected with x plane first
             current_voxel.x += step.x;
@@ -548,6 +499,7 @@ pub struct Player {
     pub forward: Vec3,
     pub up: Vec3,
     pub right: Vec3,
+    pub moving: bool,
 }
 
 ///default material for terrain
@@ -566,42 +518,12 @@ struct TerrainStore {
 
 impl Default for TerrainStore {
     fn default() -> Self {
-        TerrainStore { 
-            quad_buffer: (0..(BUFFER_SIZE*BUFFER_SIZE))
-                .map(|_|QuadInfo::default())
-                .collect()
+        TerrainStore {
+            quad_buffer: (0..(BUFFER_SIZE * BUFFER_SIZE))
+                .map(|_| QuadInfo::default())
+                .collect(),
         }
     }
-}
-
-impl TerrainStore {
-    /*
-    ///Tests if any of the recently added quads have a higher max height than the current value,
-    /// and updates accordingly
-    fn add_test(added: &[QuadInfo], max_height: &mut MaxHeight) {
-        let max_added = added.iter().map(|q| q.y_max).reduce(f32::max).unwrap_or(0.0);
-        if max_added > max_height.0 {
-            max_height.0 = max_added;
-        }
-    }
-
-    ///Tests if the quad with the largest max height was removed, and
-    /// updates accordingly
-    fn remove_test(&self, removed: &[QuadInfo], max_height: &mut MaxHeight) {
-        for quad in removed {
-            if quad.y_max == max_height.0 {
-                max_height.0 = self
-                    .quad_map
-                    .iter()
-                    .map(|(_, q)| q.y_max)
-                    .reduce(f32::min)
-                    .unwrap_or(0.0);
-                break;
-            }
-        }
-
-    }
-    */
 }
 
 ///Plane struct optimized for ray-plane intersection
@@ -690,29 +612,16 @@ impl QuadInfo {
         let y1 = get_height(x_max, z_min, noise);
         let y2 = get_height(x_min, z_max, noise);
         let y3 = get_height(x_max, z_max, noise);
-        /*
-        let tester = if world_coords == Vec2::new(0.0, 2.0) {
-            true
-        } else {
-            false
-        };
 
-        if tester {
-            println!("Vertexes:");
-            for v in [[x_min as f32,y0,z_min as f32],[x_max as f32,y1,z_min as f32],[x_min as f32,y2,z_max as f32],[x_max as f32,y3,z_max as f32]] {
-                println!("{:#?}", v);
-            }
-        }
-        */
         // Compute min/max Y
         let y_max = y0.max(y1).max(y2).max(y3);
         let y_min = y0.min(y1).min(y2).min(y3);
 
         // Construct lower plane (right angle at min_x, min_z)
         let lower = {
-            let nx = -(y1 - y0) / VOXEL_SIZE;
+            let nx = -(y1 - y0) * INV_VOXEL_SIZE;
             let ny = 1.0;
-            let nz = -(y2 - y0) / VOXEL_SIZE;
+            let nz = -(y2 - y0) * INV_VOXEL_SIZE;
             let n = Vec3::new(nx, ny, nz).normalize();
             let world_point = Vec3::new(x_min as f32, y0, z_min as f32);
             let d = -n.dot(world_point);
@@ -721,9 +630,9 @@ impl QuadInfo {
 
         // Construct upper plane (right angle at max_x, max_z)
         let upper = {
-            let nx = -(y3 - y2) / VOXEL_SIZE;
+            let nx = -(y3 - y2) * INV_VOXEL_SIZE;
             let ny = 1.0;
-            let nz = -(y3 - y1) / VOXEL_SIZE;
+            let nz = -(y3 - y1) * INV_VOXEL_SIZE;
             let n = Vec3::new(nx, ny, nz).normalize();
             let world_point = Vec3::new(x_max as f32, y3, z_max as f32);
             let d = -n.dot(world_point);
@@ -740,33 +649,6 @@ impl QuadInfo {
         }
     }
 
-    /*
-    Vertexes:
-    v0 = [
-        0.0,
-        -0.35355338,
-        2.0,
-    ],
-    v1 = [
-        2.0,
-        -0.35355338,
-        2.0,
-    ],
-    v2 = [
-        0.0,
-        0.0,
-        4.0,
-    ],
-    v3 = [
-        2.0,
-        0.70710677,
-        4.0,
-    ]
-
-    Upper is built from v1, v2, and v3
-    Lower is built from v0, v1, and v2,
-    */
-
     ///Returns the point where a 3d ray intersects with terrain generated by a heightmap stored as quads (if it exists)
     fn intersect(
         &self,
@@ -780,13 +662,6 @@ impl QuadInfo {
         {
             return None; //fully above terrain or below terrain
         }
-        /*
-        let tester = if self.world_coords == Vec2::new(0.0, 2.0) {
-            true
-        } else {
-            false
-        };
-        */
 
         //check lower first
         if enter_point.z < exit_point.z || enter_point.x < exit_point.x {
@@ -848,23 +723,61 @@ fn positive_mod(a: i32, b: i32) -> usize {
 
 ///Updates stale quads witin render distance
 fn update_terrain(
-    player_q: Single<&Transform, With<Player>>,
+    player_q: Single<(&Transform, &Player)>,
     mut terrain_store: ResMut<TerrainStore>,
-    noise: Res<NoiseStore>
+    noise: Res<NoiseStore>,
+    mut max_height: ResMut<MaxHeight>,
+    time: Res<Time>,
 ) {
-    let player_voxel = coord(player_q.into_inner().translation);
-    
+
+    //only do this if player is moving
+    let (player_transform, player) = player_q.into_inner();
+    if !player.moving { return; }
+
+    let player_voxel = coord(player_transform.translation);
+    let mut max_added = 0.;
+
+
+
     // Load voxels within render distance
     for z in (player_voxel.y - RENDER_DIST_VOXELS)..(player_voxel.y + RENDER_DIST_VOXELS) {
         for x in (player_voxel.x - RENDER_DIST_VOXELS)..(player_voxel.x + RENDER_DIST_VOXELS) {
+            //if outside circular render distance, don't worry about it
+            let dx = x - player_voxel.x;
+            let dz = z - player_voxel.y;
+            if dx * dx + dz * dz > VOXEL_RENDER_SQUARED {
+                continue;
+            };
+
             let idx = get_index(x, z);
             let voxel_coords = IVec2::new(x, z);
-            
+
             // Only generate if stale
             if terrain_store.quad_buffer[idx].voxel_coords != voxel_coords {
-                terrain_store.quad_buffer[idx] = QuadInfo::new_simple(voxel_coords, &noise);
+                let new_quad = QuadInfo::new_simple(voxel_coords, &noise);
+
+                if new_quad.y_max > max_added {
+                    max_added = new_quad.y_max;
+                }
+
+                terrain_store.quad_buffer[idx] = new_quad;
             }
         }
+    }
+
+    if max_added > max_height.0 {
+        max_height.0 = max_added;
+    }
+
+    //recompute (roughly) every 5(ish) seconds incase max was removed
+    if (time.elapsed_secs() * 1000.0) as u64 % 5000 == 0 {
+        println!("Recomputing");
+        max_height.0 = terrain_store
+            .quad_buffer
+            .iter()
+            .map(|q| q.y_max)
+            .reduce(f32::max)
+            .unwrap_or(0.0);
     }
 }
 
@@ -877,4 +790,3 @@ struct NoiseStore {
 #[derive(Resource)]
 ///Stores the max height of current rendered terrain
 struct MaxHeight(f32);
-
