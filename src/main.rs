@@ -16,10 +16,7 @@ use bevy::{
             NodeRunError, RenderGraphContext, RenderGraphExt, RenderLabel, ViewNode, ViewNodeRunner,
         },
         render_resource::{
-            BindGroup, BindGroupEntries, BindGroupLayoutDescriptor, BindGroupLayoutEntries,
-            CachedRenderPipelineId, ColorTargetState, ColorWrites, FragmentState, PipelineCache,
-            RenderPassDescriptor, RenderPipelineDescriptor, ShaderStages, ShaderType,
-            TextureFormat, UniformBuffer, binding_types::uniform_buffer,
+            BindGroup, BindGroupEntries, BindGroupLayoutDescriptor, BindGroupLayoutEntries, BlendState, CachedRenderPipelineId, ColorTargetState, ColorWrites, FragmentState, PipelineCache, RenderPassDescriptor, RenderPipelineDescriptor, ShaderStages, ShaderType, TextureFormat, UniformBuffer, binding_types::uniform_buffer
         },
         renderer::{RenderContext, RenderDevice, RenderQueue},
         view::ViewTarget,
@@ -44,7 +41,7 @@ const RENDER_DIST_VOXELS: i32 = (RENDER_DISTANCE / VOXEL_SIZE) as i32;
 const BUFFER_SIZE: i32 = RENDER_DIST_VOXELS as i32 * 2;
 const SHADER_ASSET_PATH: &str = "shaders/my_shader.wgsl";
 
-//TODO: UPDATE UNIFORM ON WINDOW RESIZE
+//TODO: Custom crate that adds quick shortcuts for shader things
 //TODO: Impliment "sphere" tracing but subtract 1 voxel length to avoid overshoot
 
 fn main() {
@@ -120,7 +117,7 @@ impl Plugin for ShaderPlugin {
 
 fn init_custom_pipeline(
     mut commands: Commands,
-    render_device: Res<RenderDevice>,
+    //render_device: Res<RenderDevice>,
     asset_server: Res<AssetServer>,
     fullscreen_shader: Res<FullscreenShader>,
     pipeline_cache: Res<PipelineCache>,
@@ -150,7 +147,7 @@ fn init_custom_pipeline(
             shader,
             targets: vec![Some(ColorTargetState {
                 format: TextureFormat::bevy_default(),
-                blend: None,
+                blend: Some(BlendState::ALPHA_BLENDING),
                 write_mask: ColorWrites::ALL,
             })],
             ..default()
