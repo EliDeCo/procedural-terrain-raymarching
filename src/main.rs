@@ -1,14 +1,35 @@
 use std::sync::Arc;
 
 use bevy::{
+    core_pipeline::{
+        FullscreenShader,
+        core_3d::graph::{Core3d, Node3d},
+    },
     diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin},
+    ecs::query::QueryItem,
     input::mouse::AccumulatedMouseMotion,
-    pbr::wireframe::{WireframeConfig, WireframePlugin},
     prelude::*,
+    render::{
+        RenderApp, RenderStartup,
+        /* 
+        extract_component::{
+            ComponentUniforms, DynamicUniformIndex, ExtractComponent, ExtractComponentPlugin,
+            UniformComponentPlugin,
+        },
+        */
+        render_graph::{
+            NodeRunError, RenderGraphContext, RenderGraphExt, RenderLabel, ViewNode, ViewNodeRunner,
+        },
+        render_resource::{
+            CachedRenderPipelineId, ColorTargetState, ColorWrites, FragmentState, PipelineCache, RenderPassDescriptor, RenderPipelineDescriptor, TextureFormat
+        },
+        renderer::{RenderContext},
+        view::ViewTarget,
+    },
     window::{CursorGrabMode, CursorOptions, PresentMode, PrimaryWindow, WindowResolution},
 };
 use noise::{NoiseFn, Perlin};
-use rayon::prelude::*;
+//use rayon::prelude::*;
 
 const VOXEL_SIZE_INPUT: u32 = 2;
 const RENDER_DISTANCE: f32 = 50.;
@@ -23,6 +44,7 @@ const INV_VOXEL_SIZE: f32 = 1.0 / VOXEL_SIZE;
 const EPS: f32 = 1e-5;
 const RENDER_DIST_VOXELS: i32 = (RENDER_DISTANCE / VOXEL_SIZE) as i32;
 const BUFFER_SIZE: i32 = RENDER_DIST_VOXELS as i32 * 2;
+const SHADER_ASSET_PATH: &str = "shaders/my_shader.wgsl";
 
 //TODO: PUT IT ON THE GRAPHICS CARD
 //TODO: Impliment "sphere" tracing but subtract 1 voxel length to avoid overshoot
@@ -43,11 +65,7 @@ fn main() {
             }),
             FrameTimeDiagnosticsPlugin::default(),
         ))
-        .add_plugins(WireframePlugin { ..default() })
-        .insert_resource(WireframeConfig {
-            global: false,
-            ..default()
-        })
+        .add_plugins(ShaderPlugin)
         .insert_resource(ClearColor(Color::srgb(0.53, 0.81, 0.92)))
         .init_resource::<TerrainStore>()
         .add_systems(Startup, (setup /*init_terrain.after(setup)*/,))
@@ -55,16 +73,112 @@ fn main() {
             Update,
             (
                 grab_mouse,
-                toggle_wireframe,
                 update_cam,
                 player_move,
                 update_fps_text,
                 update_terrain,
             ),
         )
-        .add_systems(PostUpdate, march_rays.after(TransformSystems::Propagate))
+        /*
+        .add_systems(PostUpdate,
+            march_rays.after(TransformSystems::Propagate)
+        )
+        */
         .run();
 }
+
+struct ShaderPlugin;
+impl Plugin for ShaderPlugin {
+    fn build(&self, app: &mut App) {
+        let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
+            return;
+        };
+
+        render_app.add_systems(RenderStartup, init_custom_pipeline);
+
+        render_app
+            .add_render_graph_node::<ViewNodeRunner<CustomNode>>(Core3d, MyPassLabel)
+            .add_render_graph_edges(
+                Core3d,
+                (
+                    MyPassLabel, //run before the main pass
+                    Node3d::StartMainPass,
+                ),
+            );
+    }
+}
+
+fn init_custom_pipeline(
+    mut commands: Commands,
+    //render_device: Res<RenderDevice>,
+    asset_server: Res<AssetServer>,
+    fullscreen_shader: Res<FullscreenShader>,
+    pipeline_cache: Res<PipelineCache>,
+) {
+    let shader = asset_server.load(SHADER_ASSET_PATH);
+
+    //allows us to skip writing a vertex shader
+    let vertex_state = fullscreen_shader.to_vertex_state();
+
+    // This will add the pipeline to the cache and queue its creation
+    let pipeline_id = pipeline_cache.queue_render_pipeline(RenderPipelineDescriptor {
+        label: Some("custom_pass_pipeline".into()),
+        vertex: vertex_state,
+        fragment: Some(FragmentState {
+            shader,
+            targets: vec![Some(ColorTargetState {
+                format: TextureFormat::bevy_default(),
+                blend: None,
+                write_mask: ColorWrites::ALL,
+            })],
+            ..default()
+        }),
+        ..default()
+    });
+
+    commands.insert_resource(MyPipeline { pipeline_id });
+}
+
+#[derive(Resource)]
+struct MyPipeline {
+    pipeline_id: CachedRenderPipelineId,
+}
+
+#[derive(Default)]
+struct CustomNode;
+
+impl ViewNode for CustomNode {
+    type ViewQuery = &'static ViewTarget;
+
+    fn run(
+        &self,
+        _graph: &mut RenderGraphContext,
+        render_context: &mut RenderContext,
+        view_target: QueryItem<Self::ViewQuery>,
+        world: &World,
+    ) -> Result<(), NodeRunError> {
+        let pipeline_cache = world.resource::<PipelineCache>();
+        let my_pipeline = world.resource::<MyPipeline>();
+
+        let Some(pipeline) = pipeline_cache.get_render_pipeline(my_pipeline.pipeline_id) else {
+            return Ok(());
+        };
+
+        let mut render_pass = render_context.begin_tracked_render_pass(RenderPassDescriptor {
+            label: Some("my_custom_pass".into()),
+            color_attachments: &[Some(view_target.get_color_attachment())],
+            ..default()
+        });
+
+        render_pass.set_render_pipeline(pipeline);
+        render_pass.draw(0..3, 0..1); //fullscreen triangle
+
+        Ok(())
+    }
+}
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
+struct MyPassLabel;
 
 fn setup(
     mut commands: Commands,
@@ -73,7 +187,7 @@ fn setup(
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     // camera
-    commands.spawn((Camera3d::default(),));
+    commands.spawn((Camera3d::default(),Msaa::Off));
 
     // lock mouse into window by default
     if let Ok((mut primary_window, mut cursor_options)) = q_window.single_mut() {
@@ -156,12 +270,6 @@ fn grab_mouse(
             cursor_options.grab_mode = CursorGrabMode::None;
             cursor_options.visible = true;
         }
-    }
-}
-
-fn toggle_wireframe(key: Res<ButtonInput<KeyCode>>, mut config: ResMut<WireframeConfig>) {
-    if key.just_pressed(KeyCode::Space) {
-        config.global = !config.global;
     }
 }
 
