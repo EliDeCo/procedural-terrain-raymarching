@@ -10,20 +10,18 @@ use bevy::{
     input::mouse::AccumulatedMouseMotion,
     prelude::*,
     render::{
-        RenderApp, RenderStartup,
-        /* 
-        extract_component::{
-            ComponentUniforms, DynamicUniformIndex, ExtractComponent, ExtractComponentPlugin,
-            UniformComponentPlugin,
-        },
-        */
+        Extract, Render, RenderApp, RenderStartup, RenderSystems,
+        extract_component::{ExtractComponent, ExtractComponentPlugin, UniformComponentPlugin},
         render_graph::{
             NodeRunError, RenderGraphContext, RenderGraphExt, RenderLabel, ViewNode, ViewNodeRunner,
         },
         render_resource::{
-            CachedRenderPipelineId, ColorTargetState, ColorWrites, FragmentState, PipelineCache, RenderPassDescriptor, RenderPipelineDescriptor, TextureFormat
+            BindGroup, BindGroupEntries, BindGroupLayoutDescriptor, BindGroupLayoutEntries,
+            CachedRenderPipelineId, ColorTargetState, ColorWrites, FragmentState, PipelineCache,
+            RenderPassDescriptor, RenderPipelineDescriptor, ShaderStages, ShaderType,
+            TextureFormat, UniformBuffer, binding_types::uniform_buffer,
         },
-        renderer::{RenderContext},
+        renderer::{RenderContext, RenderDevice, RenderQueue},
         view::ViewTarget,
     },
     window::{CursorGrabMode, CursorOptions, PresentMode, PrimaryWindow, WindowResolution},
@@ -46,7 +44,7 @@ const RENDER_DIST_VOXELS: i32 = (RENDER_DISTANCE / VOXEL_SIZE) as i32;
 const BUFFER_SIZE: i32 = RENDER_DIST_VOXELS as i32 * 2;
 const SHADER_ASSET_PATH: &str = "shaders/my_shader.wgsl";
 
-//TODO: PUT IT ON THE GRAPHICS CARD
+//TODO: UPDATE UNIFORM ON WINDOW RESIZE
 //TODO: Impliment "sphere" tracing but subtract 1 voxel length to avoid overshoot
 
 fn main() {
@@ -86,15 +84,27 @@ fn main() {
         */
         .run();
 }
-
+//Reference
+//https://bevy.org/examples/shaders/custom-post-processing/
 struct ShaderPlugin;
 impl Plugin for ShaderPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins((
+            //for components that live in the main world but will be extracted to the render world every frame
+            ExtractComponentPlugin::<Uniform>::default(),
+            UniformComponentPlugin::<Uniform>::default(),
+        ));
+
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
             return;
         };
 
         render_app.add_systems(RenderStartup, init_custom_pipeline);
+        render_app.add_systems(ExtractSchedule, extract_resolution);
+        render_app.add_systems(
+            Render,
+            prepare_bind_group.in_set(RenderSystems::PrepareBindGroups),
+        );
 
         render_app
             .add_render_graph_node::<ViewNodeRunner<CustomNode>>(Core3d, MyPassLabel)
@@ -110,11 +120,22 @@ impl Plugin for ShaderPlugin {
 
 fn init_custom_pipeline(
     mut commands: Commands,
-    //render_device: Res<RenderDevice>,
+    render_device: Res<RenderDevice>,
     asset_server: Res<AssetServer>,
     fullscreen_shader: Res<FullscreenShader>,
     pipeline_cache: Res<PipelineCache>,
 ) {
+    let layout = BindGroupLayoutDescriptor::new(
+        "my_pipeline_group_layout",
+        &BindGroupLayoutEntries::sequential(
+            ShaderStages::FRAGMENT,
+            (
+                //add things here to send more components to the render world
+                uniform_buffer::<Uniform>(false),
+            ),
+        ),
+    );
+
     let shader = asset_server.load(SHADER_ASSET_PATH);
 
     //allows us to skip writing a vertex shader
@@ -123,6 +144,7 @@ fn init_custom_pipeline(
     // This will add the pipeline to the cache and queue its creation
     let pipeline_id = pipeline_cache.queue_render_pipeline(RenderPipelineDescriptor {
         label: Some("custom_pass_pipeline".into()),
+        layout: vec![layout.clone()],
         vertex: vertex_state,
         fragment: Some(FragmentState {
             shader,
@@ -136,16 +158,75 @@ fn init_custom_pipeline(
         ..default()
     });
 
-    commands.insert_resource(MyPipeline { pipeline_id });
+    commands.insert_resource(MyPipeline {
+        pipeline_id,
+        layout,
+    });
 }
 
 #[derive(Resource)]
 struct MyPipeline {
     pipeline_id: CachedRenderPipelineId,
+    layout: BindGroupLayoutDescriptor,
 }
 
 #[derive(Default)]
 struct CustomNode;
+
+#[derive(Resource, Default)]
+struct ExtractedResolution(Vec2);
+
+fn extract_resolution(
+    mut commands: Commands,
+    window: Extract<Single<&Window, With<PrimaryWindow>>>,
+) {
+    //println!("Anyone home");
+    commands.insert_resource(ExtractedResolution(Vec2::new(
+        window.physical_width() as f32,
+        window.physical_height() as f32,
+    )));
+}
+
+///Updates group of information sent to the render world
+fn prepare_bind_group(
+    mut commands: Commands,
+    render_device: Res<RenderDevice>,
+    render_queue: Res<RenderQueue>,
+    world: &World,
+    //q_window: Single<&Window, With<PrimaryWindow>>
+) {
+    //println!("1.0");
+    let Some(pipeline) = world.get_resource::<MyPipeline>() else {
+        return;
+    };
+    //println!("1.1");
+    let Some(res) = world.get_resource::<ExtractedResolution>() else {
+        return;
+    };
+    //println!("1.2");
+    let Some(pipeline_cache) = world.get_resource::<PipelineCache>() else {
+        return;
+    };
+
+    let layout = pipeline_cache.get_bind_group_layout(&pipeline.layout);
+
+    let mut buffer = UniformBuffer::default();
+    buffer.set(Uniform { resolution: res.0 });
+    buffer.write_buffer(&render_device, &render_queue);
+
+    let bind_group = render_device.create_bind_group(
+        "my_pipeline_bind_group",
+        &layout,
+        &BindGroupEntries::sequential((buffer.binding().unwrap(),)),
+    );
+
+    commands.insert_resource(MyBindGroup { bind_group });
+}
+
+#[derive(Resource)]
+struct MyBindGroup {
+    bind_group: BindGroup,
+}
 
 impl ViewNode for CustomNode {
     type ViewQuery = &'static ViewTarget;
@@ -157,12 +238,26 @@ impl ViewNode for CustomNode {
         view_target: QueryItem<Self::ViewQuery>,
         world: &World,
     ) -> Result<(), NodeRunError> {
-        let pipeline_cache = world.resource::<PipelineCache>();
-        let my_pipeline = world.resource::<MyPipeline>();
+        //println!("0");
+        let Some(pipeline_cache) = world.get_resource::<PipelineCache>() else {
+            return Ok(());
+        };
+        //println!("1");
+
+        let Some(my_pipeline) = world.get_resource::<MyPipeline>() else {
+            return Ok(());
+        };
+        //println!("2");
+
+        let Some(bind_group) = world.get_resource::<MyBindGroup>() else {
+            return Ok(());
+        };
+        //println!("3");
 
         let Some(pipeline) = pipeline_cache.get_render_pipeline(my_pipeline.pipeline_id) else {
             return Ok(());
         };
+        //println!("4");
 
         let mut render_pass = render_context.begin_tracked_render_pass(RenderPassDescriptor {
             label: Some("my_custom_pass".into()),
@@ -171,6 +266,7 @@ impl ViewNode for CustomNode {
         });
 
         render_pass.set_render_pipeline(pipeline);
+        render_pass.set_bind_group(0, &bind_group.bind_group, &[]);
         render_pass.draw(0..3, 0..1); //fullscreen triangle
 
         Ok(())
@@ -180,21 +276,27 @@ impl ViewNode for CustomNode {
 #[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
 struct MyPassLabel;
 
+// This is the component that will get passed to the shader
+#[derive(Component, Default, Clone, Copy, ExtractComponent, ShaderType)]
+struct Uniform {
+    resolution: Vec2,
+}
+
 fn setup(
     mut commands: Commands,
     mut q_window: Query<(&mut Window, &mut CursorOptions), With<PrimaryWindow>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    // camera
-    commands.spawn((Camera3d::default(),Msaa::Off));
-
     // lock mouse into window by default
     if let Ok((mut primary_window, mut cursor_options)) = q_window.single_mut() {
         cursor_options.grab_mode = CursorGrabMode::Locked;
         cursor_options.visible = false;
         let center = Vec2::new(primary_window.width() / 2.0, primary_window.height() / 2.0);
         primary_window.set_cursor_position(Some(center));
+
+        // camera
+        commands.spawn((Camera3d::default(), Msaa::Off));
     }
 
     //add sun
