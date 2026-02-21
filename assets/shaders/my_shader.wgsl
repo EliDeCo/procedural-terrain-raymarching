@@ -48,15 +48,14 @@ struct Uniform {
     _pad: vec2i, // fills the gap
 }
 
-//holds all currently generated quads and material info
-struct GpuTerrainStore {
-    materials: array<GpuMaterial, 1>,
-    quad_buffer: array<GpuQuadInfo>
-}
-
-
 @group(0) @binding(0) 
 var<uniform> unif: Uniform;
+
+@group(0) @binding(1)
+var<storage> quads: array<GpuQuadInfo>;
+
+@group(1) @binding(0)
+var<uniform> materials: array<GpuMaterial, 1>;
 
 @fragment
 fn frag_main(@builtin(position) frag_coords: vec4f) -> @location(0) vec4f {
@@ -80,7 +79,7 @@ fn frag_main(@builtin(position) frag_coords: vec4f) -> @location(0) vec4f {
     let dir = normalize(p1 - p0);
 
     return vec4f(dir,1);
-    //return vec4(unif.materials[0].base_color,1);
+    //return vec4(materials[0].base_color,1);
 }
 
 //Eric Green: (0.36,0.64,0.29,1);

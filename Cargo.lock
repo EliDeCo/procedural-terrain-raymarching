@@ -329,6 +329,7 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "bevy_panorbit_camera",
+ "bytemuck",
  "log",
  "noise",
  "rayon",

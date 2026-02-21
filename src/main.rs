@@ -1,4 +1,4 @@
-use std::sync::Arc;
+
 
 use bevy::{
     core_pipeline::{
@@ -16,18 +16,15 @@ use bevy::{
             NodeRunError, RenderGraphContext, RenderGraphExt, RenderLabel, ViewNode, ViewNodeRunner,
         },
         render_resource::{
-            BindGroup, BindGroupEntries, BindGroupLayoutDescriptor, BindGroupLayoutEntries,
-            BlendState, CachedRenderPipelineId, ColorTargetState, ColorWrites, FragmentState,
-            PipelineCache, RenderPassDescriptor, RenderPipelineDescriptor, ShaderStages,
-            ShaderType, TextureFormat, UniformBuffer, binding_types::uniform_buffer,
+            BindGroup, BindGroupEntries, BindGroupLayoutDescriptor, BindGroupLayoutEntries, BlendState, Buffer, BufferInitDescriptor, BufferUsages, CachedRenderPipelineId, ColorTargetState, ColorWrites, FragmentState, PipelineCache, RenderPassDescriptor, RenderPipelineDescriptor, ShaderStages, ShaderType, StorageBuffer, TextureFormat, UniformBuffer, binding_types::{storage_buffer_read_only, uniform_buffer}
         },
         renderer::{RenderContext, RenderDevice, RenderQueue},
         view::ViewTarget,
     },
     window::{CursorGrabMode, CursorOptions, PresentMode, PrimaryWindow, WindowResolution},
 };
+use bytemuck::{NoUninit, cast_slice};
 use noise::{NoiseFn, Perlin};
-//use rayon::prelude::*;
 
 const VOXEL_SIZE_INPUT: u32 = 2;
 const RENDER_DISTANCE: f32 = 50.;
@@ -75,7 +72,7 @@ fn main() {
                 update_cam,
                 player_move,
                 update_fps_text,
-                update_terrain,
+                //update_terrain,
             ),
         )
         /*
@@ -95,11 +92,12 @@ impl Plugin for ShaderPlugin {
             ExtractComponentPlugin::<Uniform>::default(),
             UniformComponentPlugin::<Uniform>::default(),
         ));
+        app.add_systems(Update, stage_terrain_updates);
 
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
             return;
         };
-
+        
         render_app.add_systems(RenderStartup, init_custom_pipeline);
         render_app.add_systems(ExtractSchedule, extract_data);
         render_app.add_systems(
@@ -121,22 +119,67 @@ impl Plugin for ShaderPlugin {
 
 fn init_custom_pipeline(
     mut commands: Commands,
-    //render_device: Res<RenderDevice>,
+    render_device: Res<RenderDevice>,
     asset_server: Res<AssetServer>,
     fullscreen_shader: Res<FullscreenShader>,
+    render_queue: Res<RenderQueue>,
     pipeline_cache: Res<PipelineCache>,
 ) {
-    let layout = BindGroupLayoutDescriptor::new(
-        "my_pipeline_group_layout",
+    //initialize materials
+    let planet_material = GpuMaterial::from_standardmaterial(
+        StandardMaterial {
+            base_color: Color::srgb(0.34, 0.49, 0.22),
+            metallic: 0.0,
+            perceptual_roughness: 0.90,
+            reflectance: 0.04,
+            alpha_mode: AlphaMode::Opaque,
+            ..default()
+        },
+        0.0,
+    );
+
+    let materials = [planet_material];
+    
+    let mut material_buffer = UniformBuffer::default();
+    material_buffer.set(materials);
+    material_buffer.write_buffer(&render_device, &render_queue);
+
+    let static_layout = BindGroupLayoutDescriptor::new(
+        "static_layout",
         &BindGroupLayoutEntries::sequential(
             ShaderStages::FRAGMENT,
             (
-                //add things here to send more components to the render world
-                uniform_buffer::<Uniform>(false),
+                uniform_buffer::<[GpuMaterial; 1]>(false),
             ),
         ),
     );
 
+    let static_bind_group = render_device.create_bind_group(
+        "static_bind_group", 
+        &pipeline_cache.get_bind_group_layout(&static_layout), 
+        &BindGroupEntries::sequential((material_buffer.binding().unwrap(),))
+    );
+
+    //initialize terrain
+    let quads = TerrainStore::default();
+    let quad_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
+        label: Some("quad_buffer"),
+        contents: cast_slice(&quads.quad_buffer),
+        usage: BufferUsages::STORAGE | BufferUsages::COPY_DST
+    });
+
+    let layout = BindGroupLayoutDescriptor::new(
+        "per_frame_layout",
+        &BindGroupLayoutEntries::sequential(
+            ShaderStages::FRAGMENT,
+            (
+                uniform_buffer::<Uniform>(false),
+                storage_buffer_read_only::<GpuQuadInfo>(false)
+            ),
+        ),
+    );
+
+    
     let shader = asset_server.load(SHADER_ASSET_PATH);
 
     //allows us to skip writing a vertex shader
@@ -145,7 +188,10 @@ fn init_custom_pipeline(
     // This will add the pipeline to the cache and queue its creation
     let pipeline_id = pipeline_cache.queue_render_pipeline(RenderPipelineDescriptor {
         label: Some("custom_pass_pipeline".into()),
-        layout: vec![layout.clone()],
+        layout: vec![
+            layout.clone(),
+            static_layout.clone()
+            ],
         vertex: vertex_state,
         fragment: Some(FragmentState {
             shader,
@@ -162,6 +208,8 @@ fn init_custom_pipeline(
     commands.insert_resource(MyPipeline {
         pipeline_id,
         layout,
+        static_bind_group,
+        quad_buffer
     });
 }
 
@@ -169,6 +217,8 @@ fn init_custom_pipeline(
 struct MyPipeline {
     pipeline_id: CachedRenderPipelineId,
     layout: BindGroupLayoutDescriptor,
+    static_bind_group: BindGroup,
+    quad_buffer: Buffer,
 }
 
 #[derive(Default)]
@@ -178,12 +228,12 @@ fn extract_data(
     mut commands: Commands,
     window: Extract<Single<&Window, With<PrimaryWindow>>>,
     camera: Extract<Single<(&Camera, &GlobalTransform)>>,
+    pending: Extract<Option<Res<PendingTerrainChanges>>>
 ) {
-
-    let (camera, transform) = (camera.0,camera.1);
+    let (camera, transform) = (camera.0, camera.1);
     let clip_matrix = camera.clip_from_view();
     let transform_matrix = transform.to_matrix();
-    let world_from_clip = transform_matrix * clip_matrix.inverse();  
+    let world_from_clip = transform_matrix * clip_matrix.inverse();
 
     commands.insert_resource(Uniform {
         resolution: Vec2::new(
@@ -191,8 +241,18 @@ fn extract_data(
             window.physical_height() as f32,
         ),
         world_from_clip,
-        _pad: IVec2::default()
+        _pad: IVec2::default(),
     });
+    //reinsert for the render world
+    if let Some(pending) = pending.as_ref() {
+        commands.insert_resource(PendingTerrainChanges {
+            changes: pending.changes.clone(),
+        });
+    } else { //clear if no new changes needed
+         commands.insert_resource(PendingTerrainChanges {
+            changes: Vec::new(),
+        });       
+    }
 }
 
 ///Updates group of information sent to the render world
@@ -216,20 +276,59 @@ fn prepare_bind_group(
         return;
     };
 
+    let staged_changes = world.get_resource::<PendingTerrainChanges>();
+
+    
     let layout = pipeline_cache.get_bind_group_layout(&pipeline.layout);
 
-    let mut buffer = UniformBuffer::default();
-    buffer.set(*uniform);
-    buffer.write_buffer(&render_device, &render_queue);
+    let mut u_buffer = UniformBuffer::default();
+    u_buffer.set(*uniform);
+    u_buffer.write_buffer(&render_device, &render_queue);
+
+    //split into chunks that are runs
+        if let Some(staged_changes) = staged_changes && !staged_changes.changes.is_empty() {
+            let changes = &staged_changes.changes;
+            println!("updating {} quads", changes.len());
+
+            let mut chunks = vec![vec![&changes[0]]];
+            let mut last = changes[0].0;
+            for change in changes.iter().skip(1) {
+                if change.0 == last + 1 {
+                    chunks.last_mut().unwrap().push(change);
+                    last += 1;
+                } else {
+                    chunks.push(vec![change]);
+                    last = change.0;
+                }
+            }
+
+            for run in chunks {
+                let start = run[0].0;
+                let data: Vec<GpuQuadInfo> = run.iter().map(|g|g.1).collect();
+                let byte_offset = (start * std::mem::size_of::<GpuQuadInfo>()) as u64;
+
+                render_queue.write_buffer(
+                    &pipeline.quad_buffer, 
+                    byte_offset, 
+                    cast_slice(&data)
+                );
+            }
+        }
 
     let bind_group = render_device.create_bind_group(
         "my_pipeline_bind_group",
         &layout,
-        &BindGroupEntries::sequential((buffer.binding().unwrap(),)),
+        &BindGroupEntries::sequential((
+            u_buffer.binding().unwrap(),
+            pipeline.quad_buffer.as_entire_binding()
+        )),
     );
 
     commands.insert_resource(MyBindGroup { bind_group });
 }
+
+
+
 
 #[derive(Resource)]
 struct MyBindGroup {
@@ -275,6 +374,7 @@ impl ViewNode for CustomNode {
 
         render_pass.set_render_pipeline(pipeline);
         render_pass.set_bind_group(0, &bind_group.bind_group, &[]);
+        render_pass.set_bind_group(1, &my_pipeline.static_bind_group, &[]);
         render_pass.draw(0..3, 0..1); //fullscreen triangle
 
         Ok(())
@@ -292,6 +392,11 @@ struct Uniform {
     _pad: IVec2,
 }
 
+#[derive(Resource)]
+struct PendingTerrainChanges {
+    changes: Vec<(usize, GpuQuadInfo)>
+}
+
 #[derive(Component, Default, Clone, Copy, ExtractComponent, ShaderType)]
 
 struct GpuMaterial {
@@ -304,7 +409,7 @@ struct GpuMaterial {
     attenuation_color: Vec3,
     diffuse_transmission: f32,
     specular_transmission: f32,
-    ior: f32, 
+    ior: f32,
     thickness: f32,
     attenuation_distance: f32,
     anisotropy_strength: f32,
@@ -312,7 +417,7 @@ struct GpuMaterial {
     clearcoat: f32,
     clearcoat_roughness: f32,
     emissive_strength: f32,
-    _pad: i32, // 4 bytes
+    _pad: i32,    // 4 bytes
     _pad2: IVec2, // 8 bytes — reaches 112
 }
 
@@ -337,7 +442,105 @@ impl GpuMaterial {
             clearcoat_roughness: material.clearcoat_perceptual_roughness,
             emissive_strength: emissive_strength,
             _pad: 0,
-            _pad2: IVec2::default()
+            _pad2: IVec2::default(),
+        }
+    }
+}
+#[repr(C)]
+#[derive(Component, Default, Clone, Copy, ExtractComponent, ShaderType, NoUninit)]
+///Information about a single quad
+struct GpuQuadInfo {
+    world_coords: Vec2, //coordinates of the vertex with the lowest (closest to negative infinity) x and z values in world space
+    voxel_coords: IVec2,
+    upper: GpuSimplePlane,
+    lower: GpuSimplePlane,
+    y_max: f32,
+    y_min: f32,
+    _pad: IVec2, // 8 bytes to reach 96
+}
+#[repr(C)]
+#[derive(Component, Default, Clone, Copy, ExtractComponent, ShaderType, NoUninit)]
+///information about a single plane
+struct GpuSimplePlane {
+    n: Vec3,
+    d: f32,
+    material_id: u32,
+    _pad: IVec3, // 12 bytes to reach 32
+}
+
+impl GpuQuadInfo {
+    ///Creates a new quad at the gixen voxel coordinates
+    fn new_simple(coords: IVec2, noise: &NoiseStore) -> Self {
+        let coords = VOXEL_SIZE as i32 * coords;
+        let v0 = coords.to_array();
+        let v1 = (coords + IVec2::new(VOXEL_SIZE as i32, 0)).to_array();
+        let v2 = (coords + IVec2::new(0, VOXEL_SIZE as i32)).to_array();
+        let v3 = (coords + IVec2::new(VOXEL_SIZE as i32, VOXEL_SIZE as i32)).to_array();
+
+        return GpuQuadInfo::new([v0, v1, v2, v3], noise);
+    }
+
+    ///Creates a new quad from 4 vertexes (given as [[x,z]; 4])
+    fn new(vertexes: [[i32; 2]; 4], noise: &NoiseStore) -> Self {
+        // Find min and max X/Z
+        let x_min = vertexes.iter().map(|v| v[0]).min().unwrap();
+        let z_min = vertexes.iter().map(|v| v[1]).min().unwrap();
+        let x_max = vertexes.iter().map(|v| v[0]).max().unwrap();
+        let z_max = vertexes.iter().map(|v| v[1]).max().unwrap();
+
+        let world_coords = Vec2::new(x_min as f32, z_min as f32);
+        let voxel_coords = coord(Vec3::new(world_coords.x, 0.0, world_coords.y));
+
+        // Heights at the 4 corners
+        let y0 = get_height(x_min, z_min, noise);
+        let y1 = get_height(x_max, z_min, noise);
+        let y2 = get_height(x_min, z_max, noise);
+        let y3 = get_height(x_max, z_max, noise);
+
+        // Compute min/max Y
+        let y_max = y0.max(y1).max(y2).max(y3);
+        let y_min = y0.min(y1).min(y2).min(y3);
+
+        // Construct lower plane (right angle at min_x, min_z)
+        let lower = {
+            let nx = -(y1 - y0) * INV_VOXEL_SIZE;
+            let ny = 1.0;
+            let nz = -(y2 - y0) * INV_VOXEL_SIZE;
+            let n = Vec3::new(nx, ny, nz).normalize();
+            let world_point = Vec3::new(x_min as f32, y0, z_min as f32);
+            let d = -n.dot(world_point);
+            GpuSimplePlane {
+                n,
+                d,
+                material_id: 0,
+                _pad: IVec3::default()
+            }
+        };
+
+        // Construct upper plane (right angle at max_x, max_z)
+        let upper = {
+            let nx = -(y3 - y2) * INV_VOXEL_SIZE;
+            let ny = 1.0;
+            let nz = -(y3 - y1) * INV_VOXEL_SIZE;
+            let n = Vec3::new(nx, ny, nz).normalize();
+            let world_point = Vec3::new(x_max as f32, y3, z_max as f32);
+            let d = -n.dot(world_point);
+            GpuSimplePlane {
+                n,
+                d,
+                material_id: 0,
+                _pad: IVec3::default()
+            }
+        };
+
+        GpuQuadInfo {
+            world_coords,
+            voxel_coords,
+            upper,
+            lower,
+            y_max,
+            y_min,
+            _pad: IVec2::default()
         }
     }
 }
@@ -347,7 +550,7 @@ fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    /* 
+    /*
     // lock mouse into window by default
     if let Ok((mut primary_window, mut cursor_options)) = q_window.single_mut() {
         cursor_options.grab_mode = CursorGrabMode::Locked;
@@ -356,7 +559,7 @@ fn setup(
         primary_window.set_cursor_position(Some(center));
 
         // camera
-        
+
     }
     */
 
@@ -385,16 +588,6 @@ fn setup(
         },
     ));
 
-    //setup global material handle
-    let planet_material = StandardMaterial {
-        base_color: Color::srgb(0.34, 0.49, 0.22),
-        metallic: 0.0,
-        perceptual_roughness: 0.90,
-        reflectance: 0.04,
-        alpha_mode: AlphaMode::Opaque,
-        ..default()
-    };
-
     //commands.insert_resource(PlanetMaterial(planet_material.clone()));
 
     //fps text
@@ -403,10 +596,10 @@ fn setup(
         .with_child((TextSpan::default(), TextColor(Color::BLACK), FpsText));
 
     //noise for terrain generation
+
     let seed = 9226;
     commands.insert_resource(NoiseStore {
         basic_perlin: Perlin::new(seed),
-        material: Arc::new(planet_material),
     });
 
     //TODO: MAKE THIS UPDATE
@@ -531,18 +724,25 @@ fn update_fps_text(
             } else {
                 Vec3::ZERO
             };
-            let coords = coord(pos);
-            **span = format!("{value:.2}  {coords}");
+            //let coords = coord(pos);
+            **span = format!("{value:.2}");
         }
     }
 }
 
-//get the height of a given point in world coornates
+fn positive_mod(a: i32, b: i32) -> usize {
+    (((a % b) + b) % b) as usize
+}
+
 fn get_height(x: i32, z: i32, noise: &NoiseStore) -> f32 {
     noise
         .basic_perlin
         .get([x as f64 + FRAC_PI_4 as f64, z as f64 + FRAC_PI_4 as f64]) as f32
 }
+
+/* 
+//get the height of a given point in world coornates
+
 
 ///Raymarches in 2D space along the xz plane, testing when the heightmap is collided with
 fn march_rays(
@@ -774,6 +974,10 @@ fn traverse(ray: &Ray3d, max_height: f32, terrain_store: &TerrainStore, gizmos: 
         }
     }
 }
+*/
+///marker component for fps text
+#[derive(Component)]
+struct FpsText;
 
 ///used for identifying the player entity
 #[derive(Component)]
@@ -784,27 +988,14 @@ pub struct Player {
     pub moving: bool,
 }
 
-/*
-///default material for terrain
-#[derive(Resource, Clone)]
-pub struct PlanetMaterial(pub Arc<StandardMaterial>);
-*/
-
-///Information on a ray hit used for rendering
-struct HitInfo {
-    pos: Vec3,
-    material: Arc<StandardMaterial>,
-    normal: Vec3,
-}
-
-///marker component for fps text
-#[derive(Component)]
-struct FpsText;
+#[derive(Resource)]
+///Stores the max height of current rendered terrain
+struct MaxHeight(f32);
 
 ///Struct for holding all currently relevant terrain data
 #[derive(Resource)]
 struct TerrainStore {
-    quad_buffer: Box<[QuadInfo]>,
+    quad_buffer: Box<[GpuQuadInfo]>,
     initialized: bool,
 }
 
@@ -812,12 +1003,36 @@ impl Default for TerrainStore {
     fn default() -> Self {
         TerrainStore {
             quad_buffer: (0..(BUFFER_SIZE * BUFFER_SIZE))
-                .map(|_| QuadInfo::default())
+                .map(|_| GpuQuadInfo::default())
                 .collect(),
             initialized: false,
         }
     }
 }
+
+/*
+///default material for terrain
+#[derive(Resource, Clone)]
+pub struct PlanetMaterial(pub Arc<StandardMaterial>);
+*/
+/* 
+///Information on a ray hit used for rendering
+struct HitInfo {
+    pos: Vec3,
+    material: Arc<StandardMaterial>,
+    normal: Vec3,
+}
+
+
+
+///Struct for holding all currently relevant terrain data
+#[derive(Resource)]
+struct TerrainStore {
+    quad_buffer: Box<[QuadInfo]>,
+    //initialized: bool,
+}
+
+
 
 ///Plane struct optimized for ray-plane intersection
 #[derive(Debug, Default)]
@@ -849,10 +1064,7 @@ impl SimplePlane {
     }
 }
 
-///converts world position to horizontal voxel coordinates
-fn coord(p: Vec3) -> IVec2 {
-    (p.xz() * INV_VOXEL_SIZE).floor().as_ivec2()
-}
+
 
 ///Stores all relevant information of a quad for ray intersection calculations
 #[derive(Debug)]
@@ -1027,22 +1239,40 @@ impl QuadInfo {
     }
 }
 
-fn positive_mod(a: i32, b: i32) -> usize {
-    (((a % b) + b) % b) as usize
+
+
+*/
+
+///converts world position to horizontal voxel coordinates
+fn coord(p: Vec3) -> IVec2 {
+    (p.xz() * INV_VOXEL_SIZE).floor().as_ivec2()
 }
 
-///Updates stale quads witin render distance
-fn update_terrain(
+///Changes the terrainstore and sends the changes to the gpu as well
+fn stage_terrain_updates(
+    mut commands: Commands,
     player_q: Single<(&Transform, &Player)>,
-    mut terrain_store: ResMut<TerrainStore>,
+    terrain_store: Option<ResMut<TerrainStore>>,
     noise: Res<NoiseStore>,
     mut max_height: ResMut<MaxHeight>,
     time: Res<Time>,
 ) {
+    // Clear last frame's changes first
+    commands.remove_resource::<PendingTerrainChanges>();
+    
+    //println!("Are we blind");
+    let Some(mut terrain_store) = terrain_store else { return; };
+
+
+    //println!("Hello?");
+
     let need_init = !terrain_store.initialized;
+
     let (player_transform, player) = player_q.into_inner();
     let player_voxel = coord(player_transform.translation);
     let mut max_added = 0.;
+
+    let mut changes = Vec::new();
 
     let mut update_voxel = |x: i32, z: i32| {
         let idx = get_index(x, z);
@@ -1050,11 +1280,13 @@ fn update_terrain(
 
         // Only generate if stale
         if terrain_store.quad_buffer[idx].voxel_coords != voxel_coords {
-            let new_quad = QuadInfo::new_simple(voxel_coords, &noise);
+            let new_quad = GpuQuadInfo::new_simple(voxel_coords, &noise);
 
             if new_quad.y_max > max_added {
                 max_added = new_quad.y_max;
             }
+
+            changes.push((idx,new_quad.clone()));
 
             terrain_store.quad_buffer[idx] = new_quad;
         }
@@ -1069,6 +1301,16 @@ fn update_terrain(
         }
         terrain_store.initialized = true;
         max_height.0 = max_added;
+
+        //send changes to gpu
+        changes.sort_by(|a,b|a.0.cmp(&b.0));
+        for (i, quad) in changes.clone() {
+            terrain_store.quad_buffer[i] = quad;
+            //println!("A change was made");
+        }
+
+        commands.insert_resource(PendingTerrainChanges { changes });
+
         return;
     }
 
@@ -1135,23 +1377,20 @@ fn update_terrain(
             .reduce(f32::max)
             .unwrap_or(0.0);
     }
+    
+    changes.sort_by(|a,b|a.0.cmp(&b.0));
+    for (i, quad) in changes.clone() {
+        terrain_store.quad_buffer[i] = quad;
+    }
+
+    commands.insert_resource(PendingTerrainChanges { changes });
+
 }
+
 
 #[derive(Resource)]
 ///Noise Resources for terrain generation
 struct NoiseStore {
     basic_perlin: Perlin,
-    material: Arc<StandardMaterial>,
 }
 
-impl NoiseStore {
-    ///Gets the material of the requested triangle in the given quad
-    fn get_material(&self, _coords: IVec2, _upper: bool) -> Arc<StandardMaterial> {
-        //temporary
-        return self.material.clone();
-    }
-}
-
-#[derive(Resource)]
-///Stores the max height of current rendered terrain
-struct MaxHeight(f32);
