@@ -16,7 +16,7 @@ use bevy::{
             NodeRunError, RenderGraphContext, RenderGraphExt, RenderLabel, ViewNode, ViewNodeRunner,
         },
         render_resource::{
-            BindGroup, BindGroupEntries, BindGroupLayoutDescriptor, BindGroupLayoutEntries, BlendState, Buffer, BufferInitDescriptor, BufferUsages, CachedRenderPipelineId, ColorTargetState, ColorWrites, FragmentState, PipelineCache, RenderPassDescriptor, RenderPipelineDescriptor, ShaderStages, ShaderType, StorageBuffer, TextureFormat, UniformBuffer, binding_types::{storage_buffer_read_only, uniform_buffer}
+            BindGroup, BindGroupEntries, BindGroupLayoutDescriptor, BindGroupLayoutEntries, BlendState, Buffer, BufferInitDescriptor, BufferUsages, CachedRenderPipelineId, ColorTargetState, ColorWrites, FragmentState, PipelineCache, RenderPassDescriptor, RenderPipelineDescriptor, ShaderStages, ShaderType, TextureFormat, UniformBuffer, binding_types::{storage_buffer_read_only, uniform_buffer}
         },
         renderer::{RenderContext, RenderDevice, RenderQueue},
         view::ViewTarget,
@@ -36,7 +36,7 @@ const FRAC_PI_4: f32 = std::f32::consts::FRAC_PI_4;
 const PITCH_LIMIT: f32 = FRAC_PI_4;
 const VOXEL_SIZE: f32 = VOXEL_SIZE_INPUT as f32;
 const INV_VOXEL_SIZE: f32 = 1.0 / VOXEL_SIZE;
-const EPS: f32 = 1e-5;
+//const EPS: f32 = 1e-5;
 const RENDER_DIST_VOXELS: i32 = (RENDER_DISTANCE / VOXEL_SIZE) as i32;
 const BUFFER_SIZE: i32 = RENDER_DIST_VOXELS as i32 * 2;
 const SHADER_ASSET_PATH: &str = "shaders/my_shader.wgsl";
@@ -719,7 +719,7 @@ fn update_fps_text(
         if let Some(fps) = diagnostics.get(&FrameTimeDiagnosticsPlugin::FPS)
             && let Some(value) = fps.smoothed()
         {
-            let pos = if let Ok(player_transform) = player_q.single() {
+            let _ = if let Ok(player_transform) = player_q.single() {
                 player_transform.translation
             } else {
                 Vec3::ZERO
@@ -1259,7 +1259,7 @@ fn stage_terrain_updates(
 ) {
     // Clear last frame's changes first
     commands.remove_resource::<PendingTerrainChanges>();
-    
+
     //println!("Are we blind");
     let Some(mut terrain_store) = terrain_store else { return; };
 
