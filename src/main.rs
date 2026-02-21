@@ -16,7 +16,10 @@ use bevy::{
             NodeRunError, RenderGraphContext, RenderGraphExt, RenderLabel, ViewNode, ViewNodeRunner,
         },
         render_resource::{
-            BindGroup, BindGroupEntries, BindGroupLayoutDescriptor, BindGroupLayoutEntries, BlendState, CachedRenderPipelineId, ColorTargetState, ColorWrites, FragmentState, PipelineCache, RenderPassDescriptor, RenderPipelineDescriptor, ShaderStages, ShaderType, TextureFormat, UniformBuffer, binding_types::uniform_buffer
+            BindGroup, BindGroupEntries, BindGroupLayoutDescriptor, BindGroupLayoutEntries,
+            BlendState, CachedRenderPipelineId, ColorTargetState, ColorWrites, FragmentState,
+            PipelineCache, RenderPassDescriptor, RenderPipelineDescriptor, ShaderStages,
+            ShaderType, TextureFormat, UniformBuffer, binding_types::uniform_buffer,
         },
         renderer::{RenderContext, RenderDevice, RenderQueue},
         view::ViewTarget,
@@ -41,8 +44,9 @@ const RENDER_DIST_VOXELS: i32 = (RENDER_DISTANCE / VOXEL_SIZE) as i32;
 const BUFFER_SIZE: i32 = RENDER_DIST_VOXELS as i32 * 2;
 const SHADER_ASSET_PATH: &str = "shaders/my_shader.wgsl";
 
+//TODO: Switch Arc<Material> to u8 that leads to a material (also i dont think arc exists anyways)
 //TODO: Custom crate that adds quick shortcuts for shader things
-//TODO: Impliment "sphere" tracing but subtract 1 voxel length to avoid overshoot
+//TODO: Each quad has a list of references to all objects above it (like trees), which are checked during traversal
 
 fn main() {
     App::new()
@@ -53,7 +57,7 @@ fn main() {
                     title: "Bevy".into(),
                     resolution: WindowResolution::new(WINDOW_WIDTH, WINDOW_HEIGHT),
                     position: WindowPosition::Centered(MonitorSelection::Primary),
-                    resizable: false,
+                    resizable: true,
                     ..default()
                 }),
                 ..default()
@@ -97,7 +101,7 @@ impl Plugin for ShaderPlugin {
         };
 
         render_app.add_systems(RenderStartup, init_custom_pipeline);
-        render_app.add_systems(ExtractSchedule, extract_resolution);
+        render_app.add_systems(ExtractSchedule, extract_data);
         render_app.add_systems(
             Render,
             prepare_bind_group.in_set(RenderSystems::PrepareBindGroups),
@@ -170,18 +174,25 @@ struct MyPipeline {
 #[derive(Default)]
 struct CustomNode;
 
-#[derive(Resource, Default)]
-struct ExtractedResolution(Vec2);
-
-fn extract_resolution(
+fn extract_data(
     mut commands: Commands,
     window: Extract<Single<&Window, With<PrimaryWindow>>>,
+    camera: Extract<Single<(&Camera, &GlobalTransform)>>,
 ) {
-    //println!("Anyone home");
-    commands.insert_resource(ExtractedResolution(Vec2::new(
-        window.physical_width() as f32,
-        window.physical_height() as f32,
-    )));
+
+    let (camera, transform) = (camera.0,camera.1);
+    let clip_matrix = camera.clip_from_view();
+    let transform_matrix = transform.to_matrix();
+    let world_from_clip = transform_matrix * clip_matrix.inverse();  
+
+    commands.insert_resource(Uniform {
+        resolution: Vec2::new(
+            window.physical_width() as f32,
+            window.physical_height() as f32,
+        ),
+        world_from_clip,
+        _pad: IVec2::default()
+    });
 }
 
 ///Updates group of information sent to the render world
@@ -197,7 +208,7 @@ fn prepare_bind_group(
         return;
     };
     //println!("1.1");
-    let Some(res) = world.get_resource::<ExtractedResolution>() else {
+    let Some(uniform) = world.get_resource::<Uniform>() else {
         return;
     };
     //println!("1.2");
@@ -208,7 +219,7 @@ fn prepare_bind_group(
     let layout = pipeline_cache.get_bind_group_layout(&pipeline.layout);
 
     let mut buffer = UniformBuffer::default();
-    buffer.set(Uniform { resolution: res.0 });
+    buffer.set(*uniform);
     buffer.write_buffer(&render_device, &render_queue);
 
     let bind_group = render_device.create_bind_group(
@@ -274,17 +285,69 @@ impl ViewNode for CustomNode {
 struct MyPassLabel;
 
 // This is the component that will get passed to the shader
-#[derive(Component, Default, Clone, Copy, ExtractComponent, ShaderType)]
+#[derive(Resource, Component, Default, Clone, Copy, ExtractComponent, ShaderType)]
 struct Uniform {
+    world_from_clip: Mat4,
     resolution: Vec2,
+    _pad: IVec2,
+}
+
+#[derive(Component, Default, Clone, Copy, ExtractComponent, ShaderType)]
+
+struct GpuMaterial {
+    base_color: Vec3,
+    reflectance: f32,
+    emissive: Vec3,
+    roughness: f32,
+    specular_tint: Vec3,
+    metallic: f32,
+    attenuation_color: Vec3,
+    diffuse_transmission: f32,
+    specular_transmission: f32,
+    ior: f32, 
+    thickness: f32,
+    attenuation_distance: f32,
+    anisotropy_strength: f32,
+    anisotropy_rotation: f32,
+    clearcoat: f32,
+    clearcoat_roughness: f32,
+    emissive_strength: f32,
+    _pad: i32, // 4 bytes
+    _pad2: IVec2, // 8 bytes — reaches 112
+}
+
+impl GpuMaterial {
+    fn from_standardmaterial(material: StandardMaterial, emissive_strength: f32) -> Self {
+        GpuMaterial {
+            base_color: material.base_color.to_linear().to_vec3(),
+            reflectance: material.reflectance,
+            emissive: material.emissive.to_vec3(),
+            roughness: material.perceptual_roughness,
+            specular_tint: material.specular_tint.to_linear().to_vec3(),
+            metallic: material.metallic,
+            attenuation_color: material.attenuation_color.to_linear().to_vec3(),
+            diffuse_transmission: material.diffuse_transmission,
+            specular_transmission: material.specular_transmission,
+            ior: material.ior,
+            thickness: material.thickness,
+            attenuation_distance: material.attenuation_distance,
+            anisotropy_strength: material.anisotropy_strength,
+            anisotropy_rotation: material.anisotropy_rotation,
+            clearcoat: material.clearcoat,
+            clearcoat_roughness: material.clearcoat_perceptual_roughness,
+            emissive_strength: emissive_strength,
+            _pad: 0,
+            _pad2: IVec2::default()
+        }
+    }
 }
 
 fn setup(
     mut commands: Commands,
-    mut q_window: Query<(&mut Window, &mut CursorOptions), With<PrimaryWindow>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
+    /* 
     // lock mouse into window by default
     if let Ok((mut primary_window, mut cursor_options)) = q_window.single_mut() {
         cursor_options.grab_mode = CursorGrabMode::Locked;
@@ -293,8 +356,11 @@ fn setup(
         primary_window.set_cursor_position(Some(center));
 
         // camera
-        commands.spawn((Camera3d::default(), Msaa::Off));
+        
     }
+    */
+
+    commands.spawn((Camera3d::default(), Msaa::Off));
 
     //add sun
     commands.spawn((
