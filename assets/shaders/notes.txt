@@ -1,0 +1,13 @@
+Planned Features/Addtions
+1. Get basic raytracing functionality (flat lambertian diffuse shading)
+2. Smooth normals
+3. Hard Shadows
+4. Soft Shadows
+5. Ambient Occlusion
+6. Fog
+7. Sky Modeling
+8. Specular Highlights
+9. Reflections/Refractions (water too)
+10. Volumetric Clouds
+11. Improved terrain generation
+12. Dyanmic render distance based on player position (if possible)

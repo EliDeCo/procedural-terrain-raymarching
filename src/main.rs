@@ -1,5 +1,3 @@
-
-
 use bevy::{
     core_pipeline::{
         FullscreenShader,
@@ -16,7 +14,11 @@ use bevy::{
             NodeRunError, RenderGraphContext, RenderGraphExt, RenderLabel, ViewNode, ViewNodeRunner,
         },
         render_resource::{
-            BindGroup, BindGroupEntries, BindGroupLayoutDescriptor, BindGroupLayoutEntries, BlendState, Buffer, BufferInitDescriptor, BufferUsages, CachedRenderPipelineId, ColorTargetState, ColorWrites, FragmentState, PipelineCache, RenderPassDescriptor, RenderPipelineDescriptor, ShaderStages, ShaderType, TextureFormat, UniformBuffer, binding_types::{storage_buffer_read_only, uniform_buffer}
+            BindGroup, BindGroupEntries, BindGroupLayoutDescriptor, BindGroupLayoutEntries,
+            BlendState, Buffer, BufferInitDescriptor, BufferUsages, CachedRenderPipelineId,
+            ColorTargetState, ColorWrites, FragmentState, PipelineCache, RenderPassDescriptor,
+            RenderPipelineDescriptor, ShaderStages, ShaderType, TextureFormat, UniformBuffer,
+            binding_types::{storage_buffer_read_only, uniform_buffer},
         },
         renderer::{RenderContext, RenderDevice, RenderQueue},
         view::ViewTarget,
@@ -40,10 +42,6 @@ const INV_VOXEL_SIZE: f32 = 1.0 / VOXEL_SIZE;
 const RENDER_DIST_VOXELS: i32 = (RENDER_DISTANCE / VOXEL_SIZE) as i32;
 const BUFFER_SIZE: i32 = RENDER_DIST_VOXELS as i32 * 2;
 const SHADER_ASSET_PATH: &str = "shaders/my_shader.wgsl";
-
-//TODO: Switch Arc<Material> to u8 that leads to a material (also i dont think arc exists anyways)
-//TODO: Custom crate that adds quick shortcuts for shader things
-//TODO: Each quad has a list of references to all objects above it (like trees), which are checked during traversal
 
 fn main() {
     App::new()
@@ -97,7 +95,7 @@ impl Plugin for ShaderPlugin {
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
             return;
         };
-        
+
         render_app.add_systems(RenderStartup, init_custom_pipeline);
         render_app.add_systems(ExtractSchedule, extract_data);
         render_app.add_systems(
@@ -139,7 +137,7 @@ fn init_custom_pipeline(
     );
 
     let materials = [planet_material];
-    
+
     let mut material_buffer = UniformBuffer::default();
     material_buffer.set(materials);
     material_buffer.write_buffer(&render_device, &render_queue);
@@ -148,16 +146,14 @@ fn init_custom_pipeline(
         "static_layout",
         &BindGroupLayoutEntries::sequential(
             ShaderStages::FRAGMENT,
-            (
-                uniform_buffer::<[GpuMaterial; 1]>(false),
-            ),
+            (uniform_buffer::<[GpuMaterial; 1]>(false),),
         ),
     );
 
     let static_bind_group = render_device.create_bind_group(
-        "static_bind_group", 
-        &pipeline_cache.get_bind_group_layout(&static_layout), 
-        &BindGroupEntries::sequential((material_buffer.binding().unwrap(),))
+        "static_bind_group",
+        &pipeline_cache.get_bind_group_layout(&static_layout),
+        &BindGroupEntries::sequential((material_buffer.binding().unwrap(),)),
     );
 
     //initialize terrain
@@ -165,7 +161,7 @@ fn init_custom_pipeline(
     let quad_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
         label: Some("quad_buffer"),
         contents: cast_slice(&quads.quad_buffer),
-        usage: BufferUsages::STORAGE | BufferUsages::COPY_DST
+        usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
     });
 
     let layout = BindGroupLayoutDescriptor::new(
@@ -174,12 +170,11 @@ fn init_custom_pipeline(
             ShaderStages::FRAGMENT,
             (
                 uniform_buffer::<Uniform>(false),
-                storage_buffer_read_only::<GpuQuadInfo>(false)
+                storage_buffer_read_only::<GpuQuadInfo>(false),
             ),
         ),
     );
 
-    
     let shader = asset_server.load(SHADER_ASSET_PATH);
 
     //allows us to skip writing a vertex shader
@@ -188,10 +183,7 @@ fn init_custom_pipeline(
     // This will add the pipeline to the cache and queue its creation
     let pipeline_id = pipeline_cache.queue_render_pipeline(RenderPipelineDescriptor {
         label: Some("custom_pass_pipeline".into()),
-        layout: vec![
-            layout.clone(),
-            static_layout.clone()
-            ],
+        layout: vec![layout.clone(), static_layout.clone()],
         vertex: vertex_state,
         fragment: Some(FragmentState {
             shader,
@@ -209,7 +201,7 @@ fn init_custom_pipeline(
         pipeline_id,
         layout,
         static_bind_group,
-        quad_buffer
+        quad_buffer,
     });
 }
 
@@ -228,7 +220,7 @@ fn extract_data(
     mut commands: Commands,
     window: Extract<Single<&Window, With<PrimaryWindow>>>,
     camera: Extract<Single<(&Camera, &GlobalTransform)>>,
-    pending: Extract<Option<Res<PendingTerrainChanges>>>
+    pending: Extract<Option<Res<PendingTerrainChanges>>>,
 ) {
     let (camera, transform) = (camera.0, camera.1);
     let clip_matrix = camera.clip_from_view();
@@ -248,10 +240,11 @@ fn extract_data(
         commands.insert_resource(PendingTerrainChanges {
             changes: pending.changes.clone(),
         });
-    } else { //clear if no new changes needed
-         commands.insert_resource(PendingTerrainChanges {
+    } else {
+        //clear if no new changes needed
+        commands.insert_resource(PendingTerrainChanges {
             changes: Vec::new(),
-        });       
+        });
     }
 }
 
@@ -278,7 +271,6 @@ fn prepare_bind_group(
 
     let staged_changes = world.get_resource::<PendingTerrainChanges>();
 
-    
     let layout = pipeline_cache.get_bind_group_layout(&pipeline.layout);
 
     let mut u_buffer = UniformBuffer::default();
@@ -286,49 +278,44 @@ fn prepare_bind_group(
     u_buffer.write_buffer(&render_device, &render_queue);
 
     //split into chunks that are runs
-        if let Some(staged_changes) = staged_changes && !staged_changes.changes.is_empty() {
-            let changes = &staged_changes.changes;
-            println!("updating {} quads", changes.len());
+    if let Some(staged_changes) = staged_changes
+        && !staged_changes.changes.is_empty()
+    {
+        let changes = &staged_changes.changes;
+        println!("updating {} quads", changes.len());
 
-            let mut chunks = vec![vec![&changes[0]]];
-            let mut last = changes[0].0;
-            for change in changes.iter().skip(1) {
-                if change.0 == last + 1 {
-                    chunks.last_mut().unwrap().push(change);
-                    last += 1;
-                } else {
-                    chunks.push(vec![change]);
-                    last = change.0;
-                }
-            }
-
-            for run in chunks {
-                let start = run[0].0;
-                let data: Vec<GpuQuadInfo> = run.iter().map(|g|g.1).collect();
-                let byte_offset = (start * std::mem::size_of::<GpuQuadInfo>()) as u64;
-
-                render_queue.write_buffer(
-                    &pipeline.quad_buffer, 
-                    byte_offset, 
-                    cast_slice(&data)
-                );
+        let mut chunks = vec![vec![&changes[0]]];
+        let mut last = changes[0].0;
+        for change in changes.iter().skip(1) {
+            if change.0 == last + 1 {
+                chunks.last_mut().unwrap().push(change);
+                last += 1;
+            } else {
+                chunks.push(vec![change]);
+                last = change.0;
             }
         }
+
+        for run in chunks {
+            let start = run[0].0;
+            let data: Vec<GpuQuadInfo> = run.iter().map(|g| g.1).collect();
+            let byte_offset = (start * std::mem::size_of::<GpuQuadInfo>()) as u64;
+
+            render_queue.write_buffer(&pipeline.quad_buffer, byte_offset, cast_slice(&data));
+        }
+    }
 
     let bind_group = render_device.create_bind_group(
         "my_pipeline_bind_group",
         &layout,
         &BindGroupEntries::sequential((
             u_buffer.binding().unwrap(),
-            pipeline.quad_buffer.as_entire_binding()
+            pipeline.quad_buffer.as_entire_binding(),
         )),
     );
 
     commands.insert_resource(MyBindGroup { bind_group });
 }
-
-
-
 
 #[derive(Resource)]
 struct MyBindGroup {
@@ -394,7 +381,7 @@ struct Uniform {
 
 #[derive(Resource)]
 struct PendingTerrainChanges {
-    changes: Vec<(usize, GpuQuadInfo)>
+    changes: Vec<(usize, GpuQuadInfo)>,
 }
 
 #[derive(Component, Default, Clone, Copy, ExtractComponent, ShaderType)]
@@ -513,7 +500,7 @@ impl GpuQuadInfo {
                 n,
                 d,
                 material_id: 0,
-                _pad: IVec3::default()
+                _pad: IVec3::default(),
             }
         };
 
@@ -529,7 +516,7 @@ impl GpuQuadInfo {
                 n,
                 d,
                 material_id: 0,
-                _pad: IVec3::default()
+                _pad: IVec3::default(),
             }
         };
 
@@ -540,7 +527,7 @@ impl GpuQuadInfo {
             lower,
             y_max,
             y_min,
-            _pad: IVec2::default()
+            _pad: IVec2::default(),
         }
     }
 }
@@ -735,12 +722,15 @@ fn positive_mod(a: i32, b: i32) -> usize {
 }
 
 fn get_height(x: i32, z: i32, noise: &NoiseStore) -> f32 {
+    /*
     noise
         .basic_perlin
         .get([x as f64 + FRAC_PI_4 as f64, z as f64 + FRAC_PI_4 as f64]) as f32
+    */
+    0.0
 }
 
-/* 
+/*
 //get the height of a given point in world coornates
 
 
@@ -1015,7 +1005,7 @@ impl Default for TerrainStore {
 #[derive(Resource, Clone)]
 pub struct PlanetMaterial(pub Arc<StandardMaterial>);
 */
-/* 
+/*
 ///Information on a ray hit used for rendering
 struct HitInfo {
     pos: Vec3,
@@ -1034,35 +1024,7 @@ struct TerrainStore {
 
 
 
-///Plane struct optimized for ray-plane intersection
-#[derive(Debug, Default)]
-struct SimplePlane {
-    n: Vec3,                         // normalized normal
-    d: f32,                          // plane constant
-    material: Arc<StandardMaterial>, //the material of this triangle
-}
 
-impl SimplePlane {
-    ///Returns the 3d point where the ray intersects the plane, or None if near parallel
-    fn ray_plane(&self, ray: &Ray3d) -> Option<Vec3> {
-        // denominator = dot(n, ray direction)
-        let denom = self.n.dot(ray.direction.into());
-
-        // Parallel (or extremely close to parallel)
-        if denom.abs() < EPS {
-            return None;
-        }
-
-        let t = -(self.n.dot(ray.origin) + self.d) / denom;
-
-        // Optional: reject intersections behind the ray
-        if t < EPS {
-            return None;
-        }
-
-        Some(ray.origin + ray.direction * t)
-    }
-}
 
 
 
@@ -1199,7 +1161,7 @@ impl QuadInfo {
 
         //if the ray does intersect the plane, make sure it happens within the voxel
         if let Some(point) = point {
-            if coord(point) != self.voxel_coords {
+            if coord(point) != self.voxel_coords { Could optimize this by just doing comparisons based on the bounds
                 return None;
             }
 
@@ -1239,7 +1201,35 @@ impl QuadInfo {
     }
 }
 
+///Plane struct optimized for ray-plane intersection
+#[derive(Debug, Default)]
+struct SimplePlane {
+    n: Vec3,                         // normalized normal
+    d: f32,                          // plane constant
+    material: Arc<StandardMaterial>, //the material of this triangle
+}
 
+impl SimplePlane {
+    ///Returns the 3d point where the ray intersects the plane, or None if near parallel
+    fn ray_plane(&self, ray: &Ray3d) -> Option<Vec3> {
+        // denominator = dot(n, ray direction)
+        let denom = self.n.dot(ray.direction.into());
+
+        // Parallel (or extremely close to parallel)
+        if denom.abs() < EPS {
+            return None;
+        }
+
+        let t = -(self.n.dot(ray.origin) + self.d) / denom;
+
+        // Optional: reject intersections behind the ray
+        if t < EPS {
+            return None;
+        }
+
+        Some(ray.origin + ray.direction * t)
+    }
+}
 
 */
 
@@ -1261,8 +1251,9 @@ fn stage_terrain_updates(
     commands.remove_resource::<PendingTerrainChanges>();
 
     //println!("Are we blind");
-    let Some(mut terrain_store) = terrain_store else { return; };
-
+    let Some(mut terrain_store) = terrain_store else {
+        return;
+    };
 
     //println!("Hello?");
 
@@ -1286,7 +1277,7 @@ fn stage_terrain_updates(
                 max_added = new_quad.y_max;
             }
 
-            changes.push((idx,new_quad.clone()));
+            changes.push((idx, new_quad.clone()));
 
             terrain_store.quad_buffer[idx] = new_quad;
         }
@@ -1303,7 +1294,7 @@ fn stage_terrain_updates(
         max_height.0 = max_added;
 
         //send changes to gpu
-        changes.sort_by(|a,b|a.0.cmp(&b.0));
+        changes.sort_by(|a, b| a.0.cmp(&b.0));
         for (i, quad) in changes.clone() {
             terrain_store.quad_buffer[i] = quad;
             //println!("A change was made");
@@ -1377,20 +1368,17 @@ fn stage_terrain_updates(
             .reduce(f32::max)
             .unwrap_or(0.0);
     }
-    
-    changes.sort_by(|a,b|a.0.cmp(&b.0));
+
+    changes.sort_by(|a, b| a.0.cmp(&b.0));
     for (i, quad) in changes.clone() {
         terrain_store.quad_buffer[i] = quad;
     }
 
     commands.insert_resource(PendingTerrainChanges { changes });
-
 }
-
 
 #[derive(Resource)]
 ///Noise Resources for terrain generation
 struct NoiseStore {
     basic_perlin: Perlin,
 }
-
