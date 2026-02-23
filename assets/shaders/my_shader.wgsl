@@ -61,7 +61,7 @@ var<uniform> materials: array<GpuMaterial, 1>;
 fn frag_main(@builtin(position) frag_coords: vec4f) -> @location(0) vec4f {
     let uv = frag_coords.xy / unif.resolution;
 
-    //flip y
+    //normalized device coordinates (flip y)
     let ndc = vec2f(
         uv.x * 2.0 - 1.0,
         1.0 - uv.y * 2.0
@@ -73,13 +73,12 @@ fn frag_main(@builtin(position) frag_coords: vec4f) -> @location(0) vec4f {
     let world_near = unif.world_from_clip * clip_near;
     let world_far  = unif.world_from_clip * clip_far;
 
-    let p0 = world_near.xyz / world_near.w; //doubles as ray origin
-    let p1 = world_far.xyz / world_far.w;
+    let origin = world_near.xyz / world_near.w;
+    let far = world_far.xyz / world_far.w;
 
-    let dir = normalize(p1 - p0);
+    let direction = normalize(far - origin);
 
-    return vec4f(dir,1);
-    //return vec4(materials[0].base_color,1);
+    return vec4f(direction,1);
 }
 
 //Eric Green: (0.36,0.64,0.29,1);
