@@ -28,8 +28,8 @@ use bevy::{
 use bytemuck::{NoUninit, cast_slice};
 use noise::{NoiseFn, Perlin};
 
-const VOXEL_SIZE_INPUT: u32 = 2;
-const RENDER_DISTANCE: f32 = 50.;
+const VOXEL_SIZE_INPUT: u32 = 8;
+const RENDER_DISTANCE: f32 = 5000.;
 const WINDOW_WIDTH: u32 = 960;
 const WINDOW_HEIGHT: u32 = 540;
 const MOVE_SPEED: f32 = 10.0;
@@ -288,7 +288,7 @@ fn prepare_bind_group(
         && !staged_changes.changes.is_empty()
     {
         let changes = &staged_changes.changes;
-        println!("updating {} quads", changes.len());
+        //println!("updating {} quads", changes.len());
 
         let mut chunks = vec![vec![&changes[0]]];
         let mut last = changes[0].0;
@@ -444,7 +444,7 @@ impl GpuMaterial {
         }
     }
 }
-#[repr(C)]
+#[repr(C, align(16))]
 #[derive(Component, Default, Clone, Copy, ExtractComponent, ShaderType, NoUninit)]
 ///Information about a single quad
 struct GpuQuadInfo {
@@ -454,16 +454,14 @@ struct GpuQuadInfo {
     lower: GpuSimplePlane,
     y_max: f32,
     y_min: f32,
-    _pad: IVec2, // 8 bytes to reach 96
+    _pad: IVec2,
 }
-#[repr(C)]
+#[repr(C, align(16))]
 #[derive(Component, Default, Clone, Copy, ExtractComponent, ShaderType, NoUninit)]
 ///information about a single plane
 struct GpuSimplePlane {
-    n: Vec3,
-    d: f32,
-    material_id: u32,
-    _pad: IVec3, // 12 bytes to reach 32
+    n_and_d: [f32; 4], //first 3 is normal, last entry is plane constant d
+    material_id: [i32; 4], //only first entry is valid
 }
 
 impl GpuQuadInfo {
@@ -508,10 +506,8 @@ impl GpuQuadInfo {
             let world_point = Vec3::new(x_min as f32, y0, z_min as f32);
             let d = -n.dot(world_point);
             GpuSimplePlane {
-                n,
-                d,
-                material_id: 0,
-                _pad: IVec3::default(),
+                n_and_d: [n.x,n.y,n.z,d],
+                material_id: [0,0,0,0],
             }
         };
 
@@ -524,10 +520,8 @@ impl GpuQuadInfo {
             let world_point = Vec3::new(x_max as f32, y3, z_max as f32);
             let d = -n.dot(world_point);
             GpuSimplePlane {
-                n,
-                d,
-                material_id: 0,
-                _pad: IVec3::default(),
+                n_and_d: [n.x,n.y,n.z,d],
+                material_id: [0,0,0,0],
             }
         };
 
@@ -586,7 +580,6 @@ fn setup(
         },
     ));
 
-    //commands.insert_resource(PlanetMaterial(planet_material.clone()));
 
     //fps text
     commands
@@ -734,227 +727,21 @@ fn positive_mod(a: i32, b: i32) -> usize {
 
 fn get_height(x: i32, z: i32, noise: &NoiseStore) -> f32 {
     
-    let _ = noise
+    let o1 = noise
         .basic_perlin
         .get([x as f64 + FRAC_PI_4 as f64, z as f64 + FRAC_PI_4 as f64]) as f32;
 
-    0.0
+     let o2 = 5. *noise
+        .basic_perlin
+        .get([(x as f64 + FRAC_PI_4 as f64)/50., (z as f64 + FRAC_PI_4 as f64)/50.]) as f32;
+
+    let o3 = 10. *noise
+        .basic_perlin
+        .get([(x as f64 + FRAC_PI_4 as f64)/100., (z as f64 + FRAC_PI_4 as f64)/100.]) as f32;  
+
+    o1+o2+o3
 }
 
-/*
-//get the height of a given point in world coornates
-
-
-///Raymarches in 2D space along the xz plane, testing when the heightmap is collided with
-fn march_rays(
-    camera_query: Single<(&Camera, &GlobalTransform)>,
-    window: Single<&Window>,
-    mut gizmos: Gizmos,
-    terrain_store: Res<TerrainStore>,
-    max_height: Res<MaxHeight>,
-    noise: Res<NoiseStore>,
-) {
-    let (camera, camera_transform) = *camera_query;
-
-    //for testing
-
-    let width = window.width();
-    let height = window.height();
-    let row1 = height * 0.6;
-    let row2 = height * 0.8;
-    let columns: Vec<f32> = (1..8).map(|x| width * (x as f32 * 0.125)).collect();
-
-    let pixels: Vec<Vec2> = [row1, row2]
-        .iter()
-        .flat_map(|row| {
-            columns
-                .iter()
-                .map(|col| Vec2::new(col.to_owned(), row.to_owned()))
-        })
-        .collect();
-
-    //let pixels = [Vec2::new(width / 2., row2)];
-
-    for pixel in pixels {
-        let ray = camera.viewport_to_world(camera_transform, pixel).unwrap();
-        traverse(&ray, max_height.0, &terrain_store, &mut gizmos);
-    }
-
-
-
-    //fastest method
-    /*
-    (0..window.width() as i32).into_par_iter().for_each(|x| {
-        for y in 0..window.height() as i32 {
-            let pixel = Vec2::new(x as f32, y as f32);
-            let ray = camera.viewport_to_world(camera_transform, pixel).unwrap();
-            traverse(&ray, max_height.0, &terrain_store);
-        }
-    });
-    */
-}
-
-fn traverse(ray: &Ray3d, max_height: f32, terrain_store: &TerrainStore, gizmos: &mut Gizmos) {
-    let ray_dir_xz = ray.direction.xz();
-    let t_max = RENDER_DISTANCE / ray_dir_xz.length();
-    let mut current_voxel: IVec2 = coord(ray.origin);
-    let ray_origin_y = ray.origin.y;
-    let mut ray_end_y = ray_origin_y;
-    let ray_dir_y = ray.direction.y;
-
-    let tilted_up = if ray_dir_y > 0.0 { true } else { false };
-
-    if ray_origin_y > max_height {
-        // Ray pointing up or horizontal while above max height, will never hit terrain
-        if ray_dir_y >= 0.0 {
-            return;
-        }
-
-        // Ray pointing down - if it won't dip below max height until outside of render distance, will never hit terrain
-        let t_to_max_height = (max_height - ray_origin_y) / ray_dir_y;
-        if t_to_max_height > t_max {
-            return;
-        }
-    }
-
-    //Near vertical ray
-    if ray_dir_xz.length_squared() < EPS {
-        //if y is postive, no collision will happen and skip entirely
-        if ray_dir_y.is_sign_positive() {
-            return;
-        }get
-
-        //if y is negative, simply find terrain height in the starting voxel and use that as our final value
-        let idx = get_index(current_voxel.x, current_voxel.y);
-        let voxel = &terrain_store.quad_buffer[idx];
-        if let Some(hit) = voxel.check_lower(ray) {
-            gizmos.sphere(
-                Isometry3d::from_translation(hit.pos),
-                0.25,
-                hit.material.base_color,
-            );
-            gizmos.ray(hit.pos, hit.normal, Color::BLACK);
-        } else if let Some(hit) = voxel.check_upper(ray) {
-            gizmos.sphere(
-                Isometry3d::from_translation(hit.pos),
-                0.25,
-                hit.material.base_color,
-            );
-            gizmos.ray(hit.pos, hit.normal, Color::BLACK);
-        } else {
-            info!("We missed! That should be impossible!");
-        }
-        return;
-    }
-
-    //collision offest in voxel coordinates
-    let offset = Vec2::new(
-        if ray.direction.x > 0.0 { 1.0 } else { 0.0 },
-        if ray.direction.z > 0.0 { 1.0 } else { 0.0 },
-    );
-
-    //the next boundary for collison testing in world coordinates
-    let next_boundary = Vec2::new(
-        (current_voxel.x as f32 + offset.x) * VOXEL_SIZE,
-        (current_voxel.y as f32 + offset.y) * VOXEL_SIZE,
-    );
-
-    //must be initalized per component so we can insert INFINITY to avoid NaN
-    let mut t = Vec2::ZERO;
-    let mut delta = Vec2::ZERO;
-
-    // X axis
-    if ray_dir_xz.x != 0.0 {
-        let inv = 1.0 / ray_dir_xz.x;
-        delta.x = VOXEL_SIZE * inv.abs();
-        t.x = (next_boundary.x - ray.origin.x) * inv;
-    } else {
-        delta.x = f32::INFINITY;
-        t.x = f32::INFINITY;
-    }
-
-    // Z axis
-    if ray_dir_xz.y != 0.0 {
-        let inv = 1.0 / ray_dir_xz.y;
-        delta.y = VOXEL_SIZE * inv.abs();
-        t.y = (next_boundary.y - ray.origin.z) * inv;
-    } else {
-        delta.y = f32::INFINITY;
-        t.y = f32::INFINITY;
-    }
-
-    //which way to step in voxel coordinates
-    let step = IVec2::new(
-        if ray.direction.x > 0.0 {
-            1
-        } else if ray.direction.x < 0.0 {
-            -1
-        } else {
-            0
-        },
-        if ray.direction.z > 0.0 {
-            1
-        } else if ray.direction.z < 0.0 {
-            -1
-        } else {
-            0
-        },
-    );
-
-    let mut t_current = 0.0;
-    loop {
-        //If our ray is tilted up and is above the highest known terrain, we can stop marching as it will never collide
-        if tilted_up && ray_end_y > max_height {
-            let end_point = ray.origin + ray.direction * t_current;
-            gizmos.sphere(Isometry3d::from_translation(end_point), 0.05, Color::BLACK);
-            break;
-        }
-
-        //collision detection
-        let t_next = t.x.min(t.y);
-
-        let enter_point = ray.origin + ray.direction * t_current;
-        let exit_point = ray.origin + ray.direction * t_next;
-
-        //current_voxel is of type IVec2. current_voxel.y corresponds to its z coordinate
-        let idx = get_index(current_voxel.x, current_voxel.y);
-
-        if let Some(hit) =
-            terrain_store.quad_buffer[idx].intersect(enter_point, exit_point, ray /*gizmos*/)
-        {
-            //ray has hit terrain
-            gizmos.sphere(
-                Isometry3d::from_translation(hit.pos),
-                0.25,
-                hit.material.base_color,
-            );
-            gizmos.ray(hit.pos, hit.normal, Color::BLACK);
-            break;
-        }
-
-        //Traversal
-
-        // see which plane is intersected first
-        if t.x < t.y {
-            //intersected with x plane first
-            current_voxel.x += step.x;
-            t.x += delta.x;
-        } else {
-            //intersected with z plane first
-            current_voxel.y += step.y;
-            t.y += delta.y;
-        }
-
-        t_current = t_next;
-        ray_end_y = ray_origin_y + t_current * ray_dir_y;
-
-        if t_current > t_max {
-            //reached render distance
-            break;
-        }
-    }
-}
-*/
 ///marker component for fps text
 #[derive(Component)]
 struct FpsText;
@@ -990,239 +777,6 @@ impl Default for TerrainStore {
     }
 }
 
-/*
-///default material for terrain
-#[derive(Resource, Clone)]
-pub struct PlanetMaterial(pub Arc<StandardMaterial>);
-*/
-/*
-///Information on a ray hit used for rendering
-struct HitInfo {
-    pos: Vec3,
-    material: Arc<StandardMaterial>,
-    normal: Vec3,
-}
-
-
-
-///Struct for holding all currently relevant terrain data
-#[derive(Resource)]
-struct TerrainStore {
-    quad_buffer: Box<[QuadInfo]>,
-    //initialized: bool,
-}
-
-
-
-
-
-
-
-///Stores all relevant information of a quad for ray intersection calculations
-#[derive(Debug)]
-struct QuadInfo {
-    world_coords: Vec2, //coordinates of the vertex with the lowest (closest to negative infinity) x and z values in world space
-    voxel_coords: IVec2,
-    upper: SimplePlane,
-    lower: SimplePlane,
-    y_max: f32,
-    y_min: f32,
-}
-
-impl Default for QuadInfo {
-    fn default() -> Self {
-        QuadInfo {
-            world_coords: Vec2::default(),
-            voxel_coords: IVec2::MAX,
-            upper: SimplePlane::default(),
-            lower: SimplePlane::default(),
-            y_max: 0.0,
-            y_min: 0.0,
-        }
-    }
-}
-
-impl QuadInfo {
-    ///Creates a new quad at the gixen voxel coordinates
-    fn new_simple(coords: IVec2, noise: &NoiseStore) -> Self {
-        let coords = VOXEL_SIZE as i32 * coords;
-        let v0 = coords.to_array();
-        let v1 = (coords + IVec2::new(VOXEL_SIZE as i32, 0)).to_array();
-        let v2 = (coords + IVec2::new(0, VOXEL_SIZE as i32)).to_array();
-        let v3 = (coords + IVec2::new(VOXEL_SIZE as i32, VOXEL_SIZE as i32)).to_array();
-
-        return QuadInfo::new([v0, v1, v2, v3], noise);
-    }
-
-    ///Creates a new quad from 4 vertexes (given as [[x,z]; 4])
-    fn new(vertexes: [[i32; 2]; 4], noise: &NoiseStore) -> Self {
-        // Find min and max X/Z
-        let x_min = vertexes.iter().map(|v| v[0]).min().unwrap();
-        let z_min = vertexes.iter().map(|v| v[1]).min().unwrap();
-        let x_max = vertexes.iter().map(|v| v[0]).max().unwrap();
-        let z_max = vertexes.iter().map(|v| v[1]).max().unwrap();
-
-        let world_coords = Vec2::new(x_min as f32, z_min as f32);
-        let voxel_coords = coord(Vec3::new(world_coords.x, 0.0, world_coords.y));
-
-        // Heights at the 4 corners
-        let y0 = get_height(x_min, z_min, noise);
-        let y1 = get_height(x_max, z_min, noise);
-        let y2 = get_height(x_min, z_max, noise);
-        let y3 = get_height(x_max, z_max, noise);
-
-        // Compute min/max Y
-        let y_max = y0.max(y1).max(y2).max(y3);
-        let y_min = y0.min(y1).min(y2).min(y3);
-
-        // Construct lower plane (right angle at min_x, min_z)
-        let lower = {
-            let nx = -(y1 - y0) * INV_VOXEL_SIZE;
-            let ny = 1.0;
-            let nz = -(y2 - y0) * INV_VOXEL_SIZE;
-            let n = Vec3::new(nx, ny, nz).normalize();
-            let world_point = Vec3::new(x_min as f32, y0, z_min as f32);
-            let d = -n.dot(world_point);
-            SimplePlane {
-                n,
-                d,
-                material: noise.get_material(voxel_coords, false),
-            }
-        };
-
-        // Construct upper plane (right angle at max_x, max_z)
-        let upper = {
-            let nx = -(y3 - y2) * INV_VOXEL_SIZE;
-            let ny = 1.0;
-            let nz = -(y3 - y1) * INV_VOXEL_SIZE;
-            let n = Vec3::new(nx, ny, nz).normalize();
-            let world_point = Vec3::new(x_max as f32, y3, z_max as f32);
-            let d = -n.dot(world_point);
-            SimplePlane {
-                n,
-                d,
-                material: noise.get_material(voxel_coords, true),
-            }
-        };
-
-        QuadInfo {
-            world_coords,
-            voxel_coords,
-            upper,
-            lower,
-            y_max,
-            y_min,
-        }
-    }
-
-    ///Returns the point where a 3d ray intersects with terrain generated by a heightmap stored as quads (if it exists)
-    fn intersect(
-        &self,
-        enter_point: Vec3,
-        exit_point: Vec3,
-        ray: &Ray3d,
-        //gizmos: &mut Gizmos,
-    ) -> Option<HitInfo> {
-        if (enter_point.y > self.y_max && exit_point.y > self.y_max)
-            || (enter_point.y < self.y_min && exit_point.y < self.y_min)
-        {
-            return None; //fully above terrain or below terrain
-        }
-
-        //check lower first
-        if enter_point.z < exit_point.z || enter_point.x < exit_point.x {
-            if let Some(point) = self.check_lower(ray) {
-                return Some(point);
-            } else {
-                return self.check_upper(ray);
-            }
-        //check upper first
-        } else {
-            if let Some(point) = self.check_upper(ray) {
-                return Some(point);
-            } else {
-                return self.check_lower(ray);
-            }
-        }
-    }
-
-    fn check_lower(&self, ray: &Ray3d) -> Option<HitInfo> {
-        let point = self.lower.ray_plane(ray);
-
-        //if the ray does intersect the plane, make sure it happens within the voxel
-        if let Some(point) = point {
-            if coord(point) != self.voxel_coords { Could optimize this by just doing comparisons based on the bounds
-                return None;
-            }
-
-            //if within the voxel, further make sure its within the triangle
-            let point_2d = Vec2::new(point.x, point.z) - self.world_coords; //convert to local coordinates
-            if point_2d.x + point_2d.y <= VOXEL_SIZE {
-                return Some(HitInfo {
-                    pos: point,
-                    material: self.lower.material.clone(),
-                    normal: self.lower.n,
-                });
-            }
-        }
-        return None;
-    }
-
-    fn check_upper(&self, ray: &Ray3d) -> Option<HitInfo> {
-        let point = self.upper.ray_plane(ray);
-
-        //if the ray does intersect the plane, make sure it happens within the voxel
-        if let Some(point) = point {
-            if coord(point) != self.voxel_coords {
-                return None;
-            }
-
-            //if within the voxel, further make sure its within the triangle
-            let point_2d = Vec2::new(point.x, point.z) - self.world_coords; //convert to local coordinates
-            if point_2d.x + point_2d.y >= VOXEL_SIZE {
-                return Some(HitInfo {
-                    pos: point,
-                    material: self.upper.material.clone(),
-                    normal: self.upper.n,
-                });
-            }
-        }
-        return None;
-    }
-}
-
-///Plane struct optimized for ray-plane intersection
-#[derive(Debug, Default)]
-struct SimplePlane {
-    n: Vec3,                         // normalized normal
-    d: f32,                          // plane constant
-    material: Arc<StandardMaterial>, //the material of this triangle
-}
-
-impl SimplePlane {
-    ///Returns the 3d point where the ray intersects the plane, or None if near parallel
-    fn ray_plane(&self, ray: &Ray3d) -> Option<Vec3> {
-        // denominator = dot(n, ray direction)
-        let denom = self.n.dot(ray.direction.into());
-
-        // Parallel (or extremely close to parallel)
-        if denom.abs() < EPS {
-            return None;
-        }
-
-        let t = -(self.n.dot(ray.origin) + self.d) / denom;
-
-        // Optional: reject intersections behind the ray
-        if t < EPS {
-            return None;
-        }
-
-        Some(ray.origin + ray.direction * t)
-    }
-}
-
-*/
-
 ///converts world position to horizontal voxel coordinates
 fn coord(p: Vec3) -> IVec2 {
     (p.xz() * INV_VOXEL_SIZE).floor().as_ivec2()
@@ -1236,7 +790,7 @@ fn stage_terrain_updates(
     noise: Res<NoiseStore>,
     mut max_height: ResMut<MaxHeight>,
     time: Res<Time>,
-    mut gizmos: Gizmos
+    //mut gizmos: Gizmos
 ) {
     // Clear last frame's changes first
     commands.remove_resource::<PendingTerrainChanges>();
@@ -1245,7 +799,7 @@ fn stage_terrain_updates(
     let Some(mut terrain_store) = terrain_store else {
         return;
     };
-
+    /* 
     //temporary "rendering"
     for quad in &terrain_store.quad_buffer {
         let coords = IVec2::new(quad.world_coords.x as i32, quad.world_coords.y as i32);
@@ -1268,7 +822,7 @@ fn stage_terrain_updates(
             gizmos.line(start, end, Color::WHITE);
         }
     }
-
+    */
 
     //println!("Hello?");
 
@@ -1285,7 +839,8 @@ fn stage_terrain_updates(
         let voxel_coords = IVec2::new(x, z);
 
         // Only generate if stale
-        if terrain_store.quad_buffer[idx].voxel_coords != voxel_coords {
+        if need_init || terrain_store.quad_buffer[idx].voxel_coords != voxel_coords 
+        {
             let new_quad = GpuQuadInfo::new_simple(voxel_coords, &noise);
 
             if new_quad.y_max > max_added {
@@ -1307,6 +862,7 @@ fn stage_terrain_updates(
         }
         terrain_store.initialized = true;
         max_height.0 = max_added;
+        println!("Set max height to {}", max_height.0);
 
         //send changes to gpu
         changes.sort_by(|a, b| a.0.cmp(&b.0));
@@ -1373,15 +929,16 @@ fn stage_terrain_updates(
     }
 
     //recompute (roughly) every 5(ish) seconds incase max was removed
-    //so its kind inaccurate so it just runs whenever but that works
+    //due to floating point drift this is pretty inaccurate and will need to be replaced later
     if (time.elapsed_secs() * 1000.0) as u64 % 5000 == 0 {
-        println!("Recomputing");
+        
         max_height.0 = terrain_store
             .quad_buffer
             .iter()
             .map(|q| q.y_max)
             .reduce(f32::max)
             .unwrap_or(0.0);
+        println!("Recomputed max height to {}", max_height.0);
     }
 
     changes.sort_by(|a, b| a.0.cmp(&b.0));

@@ -1,5 +1,6 @@
 const EPS: f32 = 0.000001;
 const SKY: vec3f = vec3f(0.53, 0.81, 0.92);
+const LIGHT_DIR: vec3f = vec3f(0.5, -0.70710678, -0.5);
 
 //Base info
 struct Uniform {
@@ -22,15 +23,13 @@ struct GpuQuadInfo {
     lower: GpuSimplePlane,
     y_max: f32,
     y_min: f32,
-    _pad: vec2i, // 8 bytes to reach 96
+    _pad: vec2i,
 }
 
 //information about a single plane
 struct GpuSimplePlane {
-    n: vec3f,
-    d: f32,
-    material_id: i32,
-    _pad: vec3i, // 12 bytes to reach 32
+    n_and_d: vec4f, //first 3 is normal, last entry is plane constant d
+    material_id: vec4i, //only first entry is valid
 }
 
 //Material properties
@@ -65,11 +64,11 @@ struct HitInfo {
 @group(0) @binding(0) 
 var<uniform> unif: Uniform;
 
-@group(0) @binding(1)
-var<storage> quads: array<GpuQuadInfo>;
-
 @group(1) @binding(0)
 var<uniform> materials: array<GpuMaterial, 1>;
+
+@group(0) @binding(1)
+var<storage> quads: array<GpuQuadInfo>;
 
 @fragment
 fn frag_main(@builtin(position) frag_coords: vec4f) -> @location(0) vec4f {
@@ -98,9 +97,16 @@ fn frag_main(@builtin(position) frag_coords: vec4f) -> @location(0) vec4f {
         return vec4f(SKY,1);
     }
 
-    let color = materials[hit.material_id].base_color;
+    let color = shade(materials[hit.material_id].base_color,hit.normal);
     return vec4f(color,1);
 }
+
+fn shade(base_color: vec3f, normal: vec3f) -> vec3f {
+    let ambient = 0.1;
+    let diffuse = max(dot(normal,-LIGHT_DIR),0);
+    return base_color * (ambient + diffuse);
+}
+
 
 fn traverse(origin: vec3f, dir: vec3f) -> HitInfo {
     let ray_dir_xz = dir.xz;
@@ -109,20 +115,25 @@ fn traverse(origin: vec3f, dir: vec3f) -> HitInfo {
     let ray_origin_y = origin.y;
     var ray_end_y = origin.y;
     let ray_dir_y = dir.y;
-
+    var t_current = 0.0;
     let tilted_up = ray_dir_y > 0;
-
+    
     if ray_origin_y > unif.max_height {
         // Ray pointing up or horizontal while above max height, will never hit terrain
         if ray_dir_y >= 0.0 {
             return no_hit();
         }
 
-        // Ray pointing down - if it won't dip below max height until outside of render distance, will never hit terrain
+        // Advance ray to where it first hits max_height
         let t_to_max_height = (unif.max_height - ray_origin_y) / ray_dir_y;
         if t_to_max_height > t_max {
             return no_hit();
         }
+
+        // Skip ahead to that point
+        t_current = t_to_max_height;
+        ray_end_y = unif.max_height;
+        current_voxel = to_voxel(origin + dir * t_current);
     }
 
     //Near vertical ray
@@ -151,10 +162,9 @@ fn traverse(origin: vec3f, dir: vec3f) -> HitInfo {
         (f32(current_voxel.y) + offset.y) * unif.voxel_size,
     );
 
-    //must be initalized per component so we can insert INFINITY to avoid NaN
+    //must be initalized per component to avoid dividing by 0
     var t_vec = vec2f(0,0);
     var delta = vec2f(0,0);
-
     // X axis
     if ray_dir_xz.x != 0.0 {
         let inv = 1.0 / ray_dir_xz.x;
@@ -180,11 +190,10 @@ fn traverse(origin: vec3f, dir: vec3f) -> HitInfo {
     i32(sign(dir.z)),
     );
 
-    var t_current = 0.0;
     loop {
         //If our ray is tilted up and is above the highest known terrain, we can stop marching as it will never collide
         if tilted_up && ray_end_y > unif.max_height {
-            break;
+            return no_hit();
         }
 
         let t_next = min(t_vec.x,t_vec.y);
@@ -216,7 +225,7 @@ fn traverse(origin: vec3f, dir: vec3f) -> HitInfo {
 
         if t_current > t_max {
             //reached render distance
-            break;
+            return no_hit();
         }
     }
     return no_hit();
@@ -246,21 +255,28 @@ fn get_index(x: i32, z: i32) -> u32 {
 }
 
 fn ray_plane(origin: vec3f, dir: vec3f, plane: GpuSimplePlane) -> HitInfo {
+    let n = plane.n_and_d.xyz;
+    let d = plane.n_and_d.w;
 
-    let denom = dot(plane.n,dir);
+    let denom = dot(n,dir);
 
     // Parallel (or extremely close to parallel)
     if abs(denom) < EPS {
         return no_hit();
     }
 
-    let t = -(dot(plane.n,origin) + plane.d) / denom;
+    let t = -(dot(n,origin) + d) / denom;
 
     if t < EPS {
         return no_hit();
     }
 
-    return HitInfo((origin + t * dir),plane.material_id,plane.n);
+
+    return HitInfo(
+        (origin + t * dir),
+        plane.material_id.x,
+        n,
+    );
 }
 
 fn check_upper(origin: vec3f, dir: vec3f, quad: GpuQuadInfo) -> HitInfo {
@@ -296,10 +312,11 @@ fn check_lower(origin: vec3f, dir: vec3f, quad: GpuQuadInfo) -> HitInfo {
 }
 
 fn intersect(origin: vec3f, dir: vec3f, quad: GpuQuadInfo, enter: vec3f, exit: vec3f) -> HitInfo {
+
     if (enter.y > quad.y_max && exit.y > quad.y_max)
         || (enter.y < quad.y_min && exit.y < quad.y_min)
     {
-        return no_hit(); //fully above terrain or below terrain
+        return no_hit();
     }
 
     //check lower first
