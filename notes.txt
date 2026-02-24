@@ -1,5 +1,5 @@
 Planned Features/Addtions
-1. Get basic raytracing functionality (flat lambertian diffuse shading)
+1. Get basic raymarching functionality (flat lambertian diffuse shading)
 2. Smooth normals
 3. Hard Shadows
 4. Soft Shadows
