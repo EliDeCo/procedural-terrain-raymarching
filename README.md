@@ -19,9 +19,8 @@ The primary goals of this project are:
 
 - Custom raymarching pipeline integrated into Bevy
 - Fragment shader ray setup
-- Basic ray direction debugging output
-
-Terrain rendering and lighting features are currently under active development.
+- Simple perlin noise terrain
+- Flat lambertian diffuse shading 
 
 ---
 
@@ -31,10 +30,8 @@ High-level pipeline:
 1. Ray setup per pixel in fragment shader
 2. Raymarch algorithm based on 2d voxel traversal through a heightmap
 4. Intersection position and normal derived from ray-plane intersection
-5. Lighting evaluation (diffuse + shadowing)
+5. Lighting evaluation (diffuse + shadowing) 
 6. Atmospheric and post-surface effects
-
-The renderer operates entirely on the GPU and avoids using meshes.
 
 ---
 
@@ -52,7 +49,7 @@ The renderer operates entirely on the GPU and avoids using meshes.
 ## Core Milestones
 
 These define the minimum complete renderer:
-- [ ] Heightmap intersection with Lambertian diffuse shading
+- [x] Heightmap intersection with Lambertian diffuse shading
 - [ ] Smooth normal computation
 - [ ] Hard shadows
 - [ ] Exponential fog
@@ -82,20 +79,15 @@ After core rendering is stable and benchmarked:
 
 ## Motivation
 
-Terrain lighting effects like soft shadows, ambient occlusion, and volumetric scattering require sampling the scene at arbitrary points — something that maps naturally onto a raymarcher while requiring extra work in a rasterized pipeline
-
-This project explores the tradeoffs between:
-- Traditional mesh-based terrain rasterization
-- Hybrid raster + raymarch approaches
-- Pure heightmap raymarching
-
-The focus is on architectural clarity, performance optimization, and rendering technique evaluation.
+Terrain lighting effects like soft shadows, ambient occlusion, and volumetric scattering require sampling the scene at arbitrary points — something that maps naturally onto a raymarcher while requiring extra work in a rasterized pipeline. This project explores the tradeoffs between different rendering methods when it comes to performance and implimentation clarity.
 
 ---
 
 ## Media
 
-Screenshots and benchmarks will be added as terrain rendering and lighting features are completed.
+![Flat Lambertian Shaded Landscape](https://github.com/EliDeCo/procedural-terrain-raymarching/blob/main/media/Flat_Lambertian_Diffuse%20.png "Logo Title Text 1")
+
+
 
 ---
 
