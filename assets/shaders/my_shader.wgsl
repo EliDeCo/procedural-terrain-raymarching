@@ -1,10 +1,18 @@
-//TODO: SEND OVER THESE VALUES
-const MAX_HEIGHT: f32 = 10;
-const RENDER_DISTANCE: f32 = 50;
-const VOXEL_SIZE: f32 = 2;
-const INV_VOXEL_SIZE: f32 = 1.0 / VOXEL_SIZE;
-const BUFFER_SIZE: u32 = 10000;
 const EPS: f32 = 0.000001;
+const SKY: vec3f = vec3f(0.53, 0.81, 0.92);
+
+//Base info
+struct Uniform {
+    world_from_clip: mat4x4f,
+    resolution: vec2f,
+    _pad: vec2i, // fills the gap
+    render_distance: f32,
+    voxel_size: f32,
+    inv_voxel_size: f32,
+    buffer_size: u32,
+    max_height: f32,
+}
+
 
 //Information about a single quad
 struct GpuQuadInfo {
@@ -48,14 +56,6 @@ struct GpuMaterial {
     _pad2: vec2i, // 8 bytes — reaches 112
 }
 
-
-//Base info
-struct Uniform {
-    world_from_clip: mat4x4f,
-    resolution: vec2f,
-    _pad: vec2i, // fills the gap
-}
-
 struct HitInfo {
     pos: vec3f,
     material_id: i32,
@@ -92,12 +92,19 @@ fn frag_main(@builtin(position) frag_coords: vec4f) -> @location(0) vec4f {
 
     let direction = normalize(far - origin);
 
-    return vec4f(direction,1);
+    let hit = traverse(origin, direction);
+
+    if hit.material_id == -1 {
+        return vec4f(SKY,1);
+    }
+
+    let color = materials[hit.material_id].base_color;
+    return vec4f(color,1);
 }
 
-fn traverse(origin: vec3f, dir: vec3f, max_height: f32) -> HitInfo {
+fn traverse(origin: vec3f, dir: vec3f) -> HitInfo {
     let ray_dir_xz = dir.xz;
-    let t_max = RENDER_DISTANCE / length(ray_dir_xz);
+    let t_max = unif.render_distance / length(ray_dir_xz);
     var current_voxel = to_voxel(origin);
     let ray_origin_y = origin.y;
     var ray_end_y = origin.y;
@@ -105,14 +112,14 @@ fn traverse(origin: vec3f, dir: vec3f, max_height: f32) -> HitInfo {
 
     let tilted_up = ray_dir_y > 0;
 
-    if ray_origin_y > max_height {
+    if ray_origin_y > unif.max_height {
         // Ray pointing up or horizontal while above max height, will never hit terrain
-        if tilted_up {
+        if ray_dir_y >= 0.0 {
             return no_hit();
         }
 
         // Ray pointing down - if it won't dip below max height until outside of render distance, will never hit terrain
-        let t_to_max_height = (max_height - ray_origin_y) / ray_dir_y;
+        let t_to_max_height = (unif.max_height - ray_origin_y) / ray_dir_y;
         if t_to_max_height > t_max {
             return no_hit();
         }
@@ -140,8 +147,8 @@ fn traverse(origin: vec3f, dir: vec3f, max_height: f32) -> HitInfo {
     );
 
     let next_boundary: vec2f = vec2f(
-        (f32(current_voxel.x) + offset.x) * VOXEL_SIZE,
-        (f32(current_voxel.y) + offset.y) * VOXEL_SIZE,
+        (f32(current_voxel.x) + offset.x) * unif.voxel_size,
+        (f32(current_voxel.y) + offset.y) * unif.voxel_size,
     );
 
     //must be initalized per component so we can insert INFINITY to avoid NaN
@@ -151,7 +158,7 @@ fn traverse(origin: vec3f, dir: vec3f, max_height: f32) -> HitInfo {
     // X axis
     if ray_dir_xz.x != 0.0 {
         let inv = 1.0 / ray_dir_xz.x;
-        delta.x = VOXEL_SIZE * abs(inv);
+        delta.x = unif.voxel_size * abs(inv);
         t_vec.x = (next_boundary.x - origin.x) * inv;
     } else {
         delta.x = 1e30;
@@ -161,7 +168,7 @@ fn traverse(origin: vec3f, dir: vec3f, max_height: f32) -> HitInfo {
     // Z axis
     if ray_dir_xz.y != 0.0 {
         let inv = 1.0 / ray_dir_xz.y;
-        delta.y = VOXEL_SIZE * abs(inv);
+        delta.y = unif.voxel_size * abs(inv);
         t_vec.y = (next_boundary.y - origin.z) * inv;
     } else {
         delta.y = 1e30;
@@ -176,7 +183,7 @@ fn traverse(origin: vec3f, dir: vec3f, max_height: f32) -> HitInfo {
     var t_current = 0.0;
     loop {
         //If our ray is tilted up and is above the highest known terrain, we can stop marching as it will never collide
-        if tilted_up && ray_end_y > MAX_HEIGHT {
+        if tilted_up && ray_end_y > unif.max_height {
             break;
         }
 
@@ -217,7 +224,7 @@ fn traverse(origin: vec3f, dir: vec3f, max_height: f32) -> HitInfo {
 
 ///converts world position to voxel coordinates
 fn to_voxel(pos: vec3f) -> vec2i {
-    return vec2i(floor(pos.xz * INV_VOXEL_SIZE));
+    return vec2i(floor(pos.xz * unif.inv_voxel_size));
 }
 
 ///returns a blank hit struct with a material value of -1, signifying no hit
@@ -235,7 +242,7 @@ fn positive_mod(a: i32, b: i32) -> u32 {
 
 //Takes the x and z voxel coordinates of a quad and returns the index within the terrain buffer
 fn get_index(x: i32, z: i32) -> u32 {
-    return positive_mod(z, i32(BUFFER_SIZE)) * BUFFER_SIZE + positive_mod(x, i32(BUFFER_SIZE));
+    return positive_mod(z, i32(unif.buffer_size)) * unif.buffer_size + positive_mod(x, i32(unif.buffer_size));
 }
 
 fn ray_plane(origin: vec3f, dir: vec3f, plane: GpuSimplePlane) -> HitInfo {
@@ -265,7 +272,7 @@ fn check_upper(origin: vec3f, dir: vec3f, quad: GpuQuadInfo) -> HitInfo {
         }
 
         let hit_local = hit.pos.xz - quad.world_coords;
-        if hit_local.x + hit_local.y >= VOXEL_SIZE {
+        if hit_local.x + hit_local.y >= unif.voxel_size {
             return hit;
         }
     }
@@ -281,7 +288,7 @@ fn check_lower(origin: vec3f, dir: vec3f, quad: GpuQuadInfo) -> HitInfo {
         }
 
         let hit_local = hit.pos.xz - quad.world_coords;
-        if hit_local.x + hit_local.y <= VOXEL_SIZE {
+        if hit_local.x + hit_local.y <= unif.voxel_size {
             return hit;
         }
     }

@@ -60,7 +60,7 @@ fn main() {
             FrameTimeDiagnosticsPlugin::default(),
         ))
         .add_plugins(ShaderPlugin)
-        .insert_resource(ClearColor(Color::srgb(0.53, 0.81, 0.92)))
+        //.insert_resource(ClearColor(Color::srgb(0.53, 0.81, 0.92)))
         .init_resource::<TerrainStore>()
         .add_systems(Startup, (setup /*init_terrain.after(setup)*/,))
         .add_systems(
@@ -221,6 +221,7 @@ fn extract_data(
     window: Extract<Single<&Window, With<PrimaryWindow>>>,
     camera: Extract<Single<(&Camera, &GlobalTransform)>>,
     pending: Extract<Option<Res<PendingTerrainChanges>>>,
+    max_height: Extract<Res<MaxHeight>>,
 ) {
     let (camera, transform) = (camera.0, camera.1);
     let clip_matrix = camera.clip_from_view();
@@ -234,6 +235,11 @@ fn extract_data(
         ),
         world_from_clip,
         _pad: IVec2::default(),
+        render_distance: RENDER_DISTANCE,
+        voxel_size: VOXEL_SIZE,
+        inv_voxel_size: INV_VOXEL_SIZE,
+        buffer_size: BUFFER_SIZE as u32,
+        max_height: max_height.0,
     });
     //reinsert for the render world
     if let Some(pending) = pending.as_ref() {
@@ -377,6 +383,11 @@ struct Uniform {
     world_from_clip: Mat4,
     resolution: Vec2,
     _pad: IVec2,
+    render_distance: f32,
+    voxel_size: f32,
+    inv_voxel_size: f32,
+    buffer_size: u32,
+    max_height: f32,
 }
 
 #[derive(Resource)]
@@ -769,28 +780,7 @@ fn march_rays(
         traverse(&ray, max_height.0, &terrain_store, &mut gizmos);
     }
 
-    //temporary "rendering"
-    for quad in &terrain_store.quad_buffer {
-        let coords = IVec2::new(quad.world_coords.x as i32, quad.world_coords.y as i32);
-        let v0 = coords;
-        let v1 = coords + IVec2::new(VOXEL_SIZE as i32, 0);
-        let v2 = coords + IVec2::new(0, VOXEL_SIZE as i32);
-        let v3 = coords + IVec2::new(VOXEL_SIZE as i32, VOXEL_SIZE as i32);
 
-        for edge in [(v0, v1), (v1, v2), (v2, v0), (v2, v3), (v3, v1)] {
-            let start = Vec3::new(
-                edge.0.x as f32,
-                get_height(edge.0.x, edge.0.y, &noise),
-                edge.0.y as f32,
-            );
-            let end = Vec3::new(
-                edge.1.x as f32,
-                get_height(edge.1.x, edge.1.y, &noise),
-                edge.1.y as f32,
-            );
-            gizmos.line(start, end, Color::WHITE);
-        }
-    }
 
     //fastest method
     /*
@@ -1246,6 +1236,7 @@ fn stage_terrain_updates(
     noise: Res<NoiseStore>,
     mut max_height: ResMut<MaxHeight>,
     time: Res<Time>,
+    mut gizmos: Gizmos
 ) {
     // Clear last frame's changes first
     commands.remove_resource::<PendingTerrainChanges>();
@@ -1254,6 +1245,30 @@ fn stage_terrain_updates(
     let Some(mut terrain_store) = terrain_store else {
         return;
     };
+
+    //temporary "rendering"
+    for quad in &terrain_store.quad_buffer {
+        let coords = IVec2::new(quad.world_coords.x as i32, quad.world_coords.y as i32);
+        let v0 = coords;
+        let v1 = coords + IVec2::new(VOXEL_SIZE as i32, 0);
+        let v2 = coords + IVec2::new(0, VOXEL_SIZE as i32);
+        let v3 = coords + IVec2::new(VOXEL_SIZE as i32, VOXEL_SIZE as i32);
+
+        for edge in [(v0, v1), (v1, v2), (v2, v0), (v2, v3), (v3, v1)] {
+            let start = Vec3::new(
+                edge.0.x as f32,
+                get_height(edge.0.x, edge.0.y, &noise),
+                edge.0.y as f32,
+            );
+            let end = Vec3::new(
+                edge.1.x as f32,
+                get_height(edge.1.x, edge.1.y, &noise),
+                edge.1.y as f32,
+            );
+            gizmos.line(start, end, Color::WHITE);
+        }
+    }
+
 
     //println!("Hello?");
 
