@@ -103,3 +103,15 @@ Screenshots and benchmarks will be added as terrain rendering and lighting featu
 
 This is the successor to [Planet Simulator](https://github.com/EliDeCo/Planet-Simulator), which used a chunk-based rasterized quadsphere. After hitting performance and visual quality limits — particularly around chunk stitching and atmospheric lighting — the project was rebuilt around a raymarching approach.
 
+## Getting Started
+
+To build and run the project locally, you must have cargo and rust installed.
+
+Clone the repository and run the project in release mode:
+```bash
+git clone https://github.com/EliDeCo/procedural-terrain-raymarching.git
+cd Procedural-Terrain-Raymarching
+cargo run --release
+```
+
+Release mode is highly recommended, as debug builds will likely have reduced performance.
