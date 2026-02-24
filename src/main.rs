@@ -722,11 +722,11 @@ fn positive_mod(a: i32, b: i32) -> usize {
 }
 
 fn get_height(x: i32, z: i32, noise: &NoiseStore) -> f32 {
-    /*
-    noise
+    
+    let _ = noise
         .basic_perlin
-        .get([x as f64 + FRAC_PI_4 as f64, z as f64 + FRAC_PI_4 as f64]) as f32
-    */
+        .get([x as f64 + FRAC_PI_4 as f64, z as f64 + FRAC_PI_4 as f64]) as f32;
+
     0.0
 }
 
@@ -832,7 +832,7 @@ fn traverse(ray: &Ray3d, max_height: f32, terrain_store: &TerrainStore, gizmos: 
         //if y is postive, no collision will happen and skip entirely
         if ray_dir_y.is_sign_positive() {
             return;
-        }
+        }get
 
         //if y is negative, simply find terrain height in the starting voxel and use that as our final value
         let idx = get_index(current_voxel.x, current_voxel.y);
