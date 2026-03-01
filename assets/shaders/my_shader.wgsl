@@ -25,7 +25,9 @@ struct GpuQuadInfo {
     y_min: f32,
     _pad: vec2i,
     n1: vec4f,
+    pos_1: vec4f,
     n2: vec4f,
+    pos_2: vec4f,
 }
 
 //information about a single plane
@@ -100,6 +102,7 @@ fn frag_main(@builtin(position) frag_coords: vec4f) -> @location(0) vec4f {
     }
 
     let color = shade(materials[hit.material_id].base_color,hit.normal);
+    //let color = hit.normal;
     return vec4f(color,1);
 }
 
@@ -256,33 +259,65 @@ fn get_index(x: i32, z: i32) -> u32 {
     return positive_mod(z, i32(unif.buffer_size)) * unif.buffer_size + positive_mod(x, i32(unif.buffer_size));
 }
 
-fn ray_plane(origin: vec3f, dir: vec3f, plane: GpuSimplePlane) -> HitInfo {
-    let n = plane.n_and_d.xyz;
+//                                                      upper => true, lower => false
+fn ray_plane(origin: vec3f, dir: vec3f, plane: GpuSimplePlane, is_upper: bool, current_quad: GpuQuadInfo) -> HitInfo {
+    let plane_n = plane.n_and_d.xyz;
     let d = plane.n_and_d.w;
 
-    let denom = dot(n,dir);
+    let denom = dot(plane_n,dir);
 
     // Parallel (or extremely close to parallel)
     if abs(denom) < EPS {
         return no_hit();
     }
 
-    let t = -(dot(n,origin) + d) / denom;
+    let t = -(dot(plane_n,origin) + d) / denom;
 
     if t < EPS {
         return no_hit();
     }
 
 
+    let adj_index = get_index(current_quad.voxel_coords.x,current_quad.voxel_coords.y+1);
+    let adj_quad = quads[adj_index];
+
+    let n0 = adj_quad.n1.xyz;
+    let p0 = adj_quad.pos_1.xyz;
+    let n1 = select(current_quad.n2, adj_quad.n2, is_upper).xyz;
+    let p1 = select(current_quad.pos_2, adj_quad.pos_2, is_upper).xyz;
+    let n2 = select(current_quad.n1, current_quad.n2, is_upper).xyz;
+    let p2 = select(current_quad.pos_1, current_quad.pos_2, is_upper).xyz;
+
+    let point = origin + t * dir;
+    let bary = barycentric(point, p0, p1, p2);
+    let smooth_normal = normalize(n0 * bary.x + n1 * bary.y + n2 * bary.z);
+    //let smooth_normal = vec3f(bary.x, bary.y, bary.z);
+
     return HitInfo(
-        (origin + t * dir),
+        point,
         plane.material_id.x,
-        n,
+        smooth_normal,
     );
 }
 
+fn barycentric(p: vec3<f32>, a: vec3<f32>, b: vec3<f32>, c: vec3<f32>) -> vec3<f32> {
+    let v0 = b - a;
+    let v1 = c - a;
+    let v2 = p - a;
+    let d00 = dot(v0, v0);
+    let d01 = dot(v0, v1);
+    let d11 = dot(v1, v1);
+    let d20 = dot(v2, v0);
+    let d21 = dot(v2, v1);
+    let denom = d00 * d11 - d01 * d01;
+    let v = (d11 * d20 - d01 * d21) / denom;
+    let w = (d00 * d21 - d01 * d20) / denom;
+    let u = 1.0 - v - w;
+    return vec3<f32>(u, v, w);
+}
+
 fn check_upper(origin: vec3f, dir: vec3f, quad: GpuQuadInfo) -> HitInfo {
-    let hit = ray_plane(origin, dir, quad.upper);
+    let hit = ray_plane(origin, dir, quad.upper, true, quad);
 
     if hit.material_id != -1 {
         if any(to_voxel(hit.pos) != quad.voxel_coords) {
@@ -298,7 +333,7 @@ fn check_upper(origin: vec3f, dir: vec3f, quad: GpuQuadInfo) -> HitInfo {
 }
 
 fn check_lower(origin: vec3f, dir: vec3f, quad: GpuQuadInfo) -> HitInfo {
-    let hit = ray_plane(origin, dir, quad.lower);
+    let hit = ray_plane(origin, dir, quad.lower, false, quad);
 
     if hit.material_id != -1 {
         if any(to_voxel(hit.pos) != quad.voxel_coords) {

@@ -1,8 +1,15 @@
+use bevy::anti_alias::fxaa::*;
 use bevy::{
-    anti_alias::fxaa::Fxaa, core_pipeline::{
+    anti_alias::fxaa::Fxaa,
+    core_pipeline::{
         FullscreenShader,
         core_3d::graph::{Core3d, Node3d},
-    }, diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin}, ecs::query::QueryItem, input::mouse::AccumulatedMouseMotion, prelude::*, render::{
+    },
+    diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin},
+    ecs::query::QueryItem,
+    input::mouse::AccumulatedMouseMotion,
+    prelude::*,
+    render::{
         Extract, Render, RenderApp, RenderStartup, RenderSystems,
         extract_component::{ExtractComponent, ExtractComponentPlugin, UniformComponentPlugin},
         render_graph::{
@@ -17,12 +24,12 @@ use bevy::{
         },
         renderer::{RenderContext, RenderDevice, RenderQueue},
         view::ViewTarget,
-    }, window::{CursorGrabMode, CursorOptions, PresentMode, PrimaryWindow, WindowResolution}
+    },
+    window::{CursorGrabMode, CursorOptions, PresentMode, PrimaryWindow, WindowResolution},
 };
 use bytemuck::{NoUninit, cast_slice};
 use noise::{NoiseFn, Perlin};
 use rayon::prelude::*;
-use bevy::anti_alias::fxaa::*;
 
 const VOXEL_SIZE_INPUT: u32 = 8;
 const RENDER_DISTANCE: f32 = 500.;
@@ -444,22 +451,31 @@ impl GpuMaterial {
 #[derive(Component, Default, Clone, Copy, ExtractComponent, ShaderType, NoUninit)]
 ///Information about a single quad
 struct GpuQuadInfo {
-    world_coords: Vec2, //coordinates of the vertex with the lowest (closest to negative infinity) x and z values in world space
+    ///coordinates of the vertex with the lowest (closest to negative infinity) x and z values in world space
+    world_coords: Vec2,
     voxel_coords: IVec2,
     upper: GpuSimplePlane,
     lower: GpuSimplePlane,
     y_max: f32,
     y_min: f32,
     _pad: IVec2,
-    n1: [f32; 4], //vertex normal of the vertex at world_coords (min_x, min_z). 4th value is unused
-    n2: [f32; 4], //vertex normal of the vertex at (x_max, z_min). 4th value is unused
+    ///vertex normal of the vertex at world_coords (x_min, z_min). 4th value is unused
+    n1: [f32; 4],
+    ///The 3d position of the vertex at world_coords (x_min, z_min). 4th value is unused
+    pos_1: [f32; 4],
+    ///vertex normal of the vertex at world_coords (x_max, z_min). 4th value is unused
+    n2: [f32; 4],
+    ///The 3d position of the vertex at world_coords (x_max, z_min). 4th value is unused
+    pos_2: [f32; 4],
 }
 #[repr(C, align(16))]
 #[derive(Component, Default, Clone, Copy, ExtractComponent, ShaderType, NoUninit)]
 ///information about a single plane
 struct GpuSimplePlane {
-    n_and_d: [f32; 4], //first 3 is normal, last entry is plane constant d
-    material_id: [i32; 4], //only first entry is valid
+    ///first 3 is normal, last entry is plane constant d
+    n_and_d: [f32; 4],
+    ///only first entry is valid
+    material_id: [i32; 4],
 }
 
 impl GpuQuadInfo {
@@ -491,35 +507,134 @@ impl GpuQuadInfo {
         let y2 = get_height(x_min, z_max, noise);
         let y3 = get_height(x_max, z_max, noise);
 
+        //Extra heights for normal calculations
+        let y4 = get_height(x_min - VOXEL_SIZE as i32, z_max, noise);
+        let y5 = get_height(x_min - VOXEL_SIZE as i32, z_min, noise);
+        //let y6 = get_height(x_min - VOXEL_SIZE as i32, z_min - VOXEL_SIZE as i32, noise);
+        let y7 = get_height(x_min, z_min - VOXEL_SIZE as i32, noise);
+        let y8 = get_height(x_max, z_min - VOXEL_SIZE as i32, noise);
+        let y9 = get_height(x_max + VOXEL_SIZE as i32, z_min - VOXEL_SIZE as i32, noise);
+        let y10 = get_height(x_max + VOXEL_SIZE as i32, z_min, noise);
+        //let y11 = get_height(x_max + VOXEL_SIZE as i32, z_max, noise);
+
+        // 3D positions
+        let p0 = Vec3::new(x_min as f32, y0, z_min as f32);
+        let p1 = Vec3::new(x_max as f32, y1, z_min as f32);
+        let p2 = Vec3::new(x_min as f32, y2, z_max as f32);
+        let p3 = Vec3::new(x_max as f32, y3, z_max as f32);
+        let p4 = Vec3::new(x_min as f32 - VOXEL_SIZE, y4, z_max as f32);
+        let p5 = Vec3::new(x_min as f32 - VOXEL_SIZE, y5, z_min as f32);
+        let p7 = Vec3::new(x_min as f32, y7, z_min as f32 - VOXEL_SIZE);
+        let p8 = Vec3::new(x_max as f32, y8, z_min as f32 - VOXEL_SIZE);
+        let p9 = Vec3::new(x_max as f32 + VOXEL_SIZE, y9, z_min as f32 - VOXEL_SIZE);
+        let p10 = Vec3::new(x_max as f32 + VOXEL_SIZE, y10, z_min as f32);
+        //let p11 = Vec3::new(x_max as f32 + VOXEL_SIZE,   y11, z_max as f32);
+
+        //current voxel normals
+        let n_lower = Vec3::new(
+            -(y1 - y0) * INV_VOXEL_SIZE,
+            1.0,
+            -(y2 - y0) * INV_VOXEL_SIZE,
+        )
+        .normalize();
+        let n_upper = Vec3::new(
+            -(y3 - y2) * INV_VOXEL_SIZE,
+            1.0,
+            -(y3 - y1) * INV_VOXEL_SIZE,
+        )
+        .normalize();
+
+        //normals of all surrouding triangles
+        let n_1 = Vec3::new(
+            -(y2 - y4) * INV_VOXEL_SIZE,
+            1.0,
+            -(y2 - y0) * INV_VOXEL_SIZE,
+        )
+        .normalize();
+        let n_2 = Vec3::new(
+            -(y0 - y5) * INV_VOXEL_SIZE,
+            1.0,
+            -(y4 - y5) * INV_VOXEL_SIZE,
+        )
+        .normalize();
+        let n_3 = Vec3::new(
+            -(y0 - y5) * INV_VOXEL_SIZE,
+            1.0,
+            -(y0 - y7) * INV_VOXEL_SIZE,
+        )
+        .normalize();
+        //let n_4 = Vec3::new(-(y7 - y6) * INV_VOXEL_SIZE, 1.0, -(y5 - y6) * INV_VOXEL_SIZE).normalize();
+        let n_5 = Vec3::new(
+            -(y1 - y0) * INV_VOXEL_SIZE,
+            1.0,
+            -(y1 - y8) * INV_VOXEL_SIZE,
+        )
+        .normalize();
+        let n_6 = Vec3::new(
+            -(y8 - y7) * INV_VOXEL_SIZE,
+            1.0,
+            -(y0 - y7) * INV_VOXEL_SIZE,
+        )
+        .normalize();
+        let n_7 = Vec3::new(
+            -(y10 - y1) * INV_VOXEL_SIZE,
+            1.0,
+            -(y10 - y9) * INV_VOXEL_SIZE,
+        )
+        .normalize();
+        let n_8 = Vec3::new(
+            -(y9 - y8) * INV_VOXEL_SIZE,
+            1.0,
+            -(y1 - y8) * INV_VOXEL_SIZE,
+        )
+        .normalize();
+        //let n_9 = Vec3::new(-(y11 - y3) * INV_VOXEL_SIZE, 1.0, -(y11 - y10) * INV_VOXEL_SIZE).normalize();
+        let n_10 = Vec3::new(
+            -(y10 - y1) * INV_VOXEL_SIZE,
+            1.0,
+            -(y3 - y1) * INV_VOXEL_SIZE,
+        )
+        .normalize();
+
+        let n1 = (n_lower * angle_at(p0, p1, p2)
+            + n_1 * angle_at(p0, p2, p4)
+            + n_2 * angle_at(p0, p4, p5)
+            + n_3 * angle_at(p0, p5, p7)
+            + n_6 * angle_at(p0, p7, p8)
+            + n_5 * angle_at(p0, p8, p1))
+        .normalize();
+
+        // --- Vertex normal at p1 ---
+        // 6 triangles: n_lower, n_upper, n_5, n_8, n_7, n_10
+        let n2 = (n_lower * angle_at(p1, p2, p0)
+            + n_upper * angle_at(p1, p3, p2)
+            + n_5 * angle_at(p1, p0, p8)
+            + n_8 * angle_at(p1, p8, p9)
+            + n_7 * angle_at(p1, p9, p10)
+            + n_10 * angle_at(p1, p10, p3))
+        .normalize();
+
         // Compute min/max Y
         let y_max = y0.max(y1).max(y2).max(y3);
         let y_min = y0.min(y1).min(y2).min(y3);
 
         // Construct lower plane (right angle at min_x, min_z)
         let lower = {
-            let nx = -(y1 - y0) * INV_VOXEL_SIZE;
-            let ny = 1.0;
-            let nz = -(y2 - y0) * INV_VOXEL_SIZE;
-            let n = Vec3::new(nx, ny, nz).normalize();
             let world_point = Vec3::new(x_min as f32, y0, z_min as f32);
-            let d = -n.dot(world_point);
+            let d = -n_lower.dot(world_point);
             GpuSimplePlane {
-                n_and_d: [n.x,n.y,n.z,d],
-                material_id: [0,0,0,0],
+                n_and_d: [n_lower.x, n_lower.y, n_lower.z, d],
+                material_id: [0, 0, 0, 0],
             }
         };
 
         // Construct upper plane (right angle at max_x, max_z)
         let upper = {
-            let nx = -(y3 - y2) * INV_VOXEL_SIZE;
-            let ny = 1.0;
-            let nz = -(y3 - y1) * INV_VOXEL_SIZE;
-            let n = Vec3::new(nx, ny, nz).normalize();
             let world_point = Vec3::new(x_max as f32, y3, z_max as f32);
-            let d = -n.dot(world_point);
+            let d = -n_upper.dot(world_point);
             GpuSimplePlane {
-                n_and_d: [n.x,n.y,n.z,d],
-                material_id: [0,0,0,0],
+                n_and_d: [n_upper.x, n_upper.y, n_upper.z, d],
+                material_id: [0, 0, 0, 0],
             }
         };
 
@@ -532,8 +647,10 @@ impl GpuQuadInfo {
             y_min,
             _pad: IVec2::default(),
             //placeholders
-            n1: [0.,0.,0.,0.],
-            n2: [0.,0.,0.,0.],
+            n1: [n1.x, n1.y, n1.z, 0.],
+            n2: [n2.x, n2.y, n2.z, 0.],
+            pos_1: [x_min as f32, y0, z_min as f32, 0.],
+            pos_2: [x_max as f32, y1, z_min as f32, 0.]
         }
     }
 }
@@ -556,7 +673,15 @@ fn setup(
     }
     */
 
-    commands.spawn((Camera3d::default(), Msaa::Off, Fxaa {enabled: true, edge_threshold: Sensitivity::Low, edge_threshold_min: Sensitivity::Low}));
+    commands.spawn((
+        Camera3d::default(),
+        Msaa::Off,
+        Fxaa {
+            enabled: true,
+            edge_threshold: Sensitivity::Low,
+            edge_threshold_min: Sensitivity::Low,
+        },
+    ));
 
     //add sun
     commands.spawn((
@@ -580,7 +705,6 @@ fn setup(
             moving: true,
         },
     ));
-
 
     //fps text
     commands
@@ -727,20 +851,23 @@ fn positive_mod(a: i32, b: i32) -> usize {
 }
 
 fn get_height(x: i32, z: i32, noise: &NoiseStore) -> f32 {
-    
     let o1 = noise
         .basic_perlin
         .get([x as f64 + FRAC_PI_4 as f64, z as f64 + FRAC_PI_4 as f64]) as f32;
 
-     let o2 = 5. * noise
-        .basic_perlin
-        .get([(x as f64 + FRAC_PI_4 as f64)/70., (z as f64 + FRAC_PI_4 as f64)/70.]) as f32;
+    let o2 = 5.
+        * noise.basic_perlin.get([
+            (x as f64 + FRAC_PI_4 as f64) / 70.,
+            (z as f64 + FRAC_PI_4 as f64) / 70.,
+        ]) as f32;
 
-    let o3 = 15. * noise
-        .basic_perlin
-        .get([(x as f64 + FRAC_PI_4 as f64)/200., (z as f64 + FRAC_PI_4 as f64)/200.]) as f32;  
+    let o3 = 15.
+        * noise.basic_perlin.get([
+            (x as f64 + FRAC_PI_4 as f64) / 200.,
+            (z as f64 + FRAC_PI_4 as f64) / 200.,
+        ]) as f32;
 
-    o1+o2+o3
+    o1 + o2 + o3
 }
 
 ///marker component for fps text
@@ -800,7 +927,7 @@ fn stage_terrain_updates(
     let Some(mut terrain_store) = terrain_store else {
         return;
     };
-    /* 
+    /*
     //temporary "rendering"
     for quad in &terrain_store.quad_buffer {
         let coords = IVec2::new(quad.world_coords.x as i32, quad.world_coords.y as i32);
@@ -840,8 +967,7 @@ fn stage_terrain_updates(
         let voxel_coords = IVec2::new(x, z);
 
         // Only generate if stale
-        if need_init || terrain_store.quad_buffer[idx].voxel_coords != voxel_coords 
-        {
+        if need_init || terrain_store.quad_buffer[idx].voxel_coords != voxel_coords {
             let new_quad = GpuQuadInfo::new_simple(voxel_coords, &noise);
 
             if new_quad.y_max > max_added {
@@ -854,25 +980,31 @@ fn stage_terrain_updates(
         }
     };
 
-
-
     //if just started, generate all voxels in parallel
     if need_init {
         let noise = noise.into_inner().to_owned();
-        let new_quads: Vec<(usize, GpuQuadInfo)> = ((player_voxel.y - RENDER_DIST_VOXELS)..(player_voxel.y + RENDER_DIST_VOXELS))
+        let new_quads: Vec<(usize, GpuQuadInfo)> = ((player_voxel.y - RENDER_DIST_VOXELS)
+            ..(player_voxel.y + RENDER_DIST_VOXELS))
             .into_par_iter()
-            .flat_map(|z|((player_voxel.x - RENDER_DIST_VOXELS)..(player_voxel.x + RENDER_DIST_VOXELS))
-            .map(move |x|(get_index(x, z), GpuQuadInfo::new_simple(IVec2::new(x, z), &noise))).collect::<Vec<(usize, GpuQuadInfo)>>())
+            .flat_map(|z| {
+                ((player_voxel.x - RENDER_DIST_VOXELS)..(player_voxel.x + RENDER_DIST_VOXELS))
+                    .map(move |x| {
+                        (
+                            get_index(x, z),
+                            GpuQuadInfo::new_simple(IVec2::new(x, z), &noise),
+                        )
+                    })
+                    .collect::<Vec<(usize, GpuQuadInfo)>>()
+            })
             .collect();
 
-        for (idx,quad) in new_quads {
+        for (idx, quad) in new_quads {
             if quad.y_max > max_added {
                 max_added = quad.y_max;
             }
             changes.push((idx, quad));
-            terrain_store.quad_buffer[idx] = quad;           
+            terrain_store.quad_buffer[idx] = quad;
         }
-
 
         terrain_store.initialized = true;
         max_height.0 = max_added;
@@ -946,7 +1078,6 @@ fn stage_terrain_updates(
     //recompute (roughly) every 5(ish) seconds incase max was removed
     //due to floating point drift this is pretty inaccurate and will need to be replaced later
     if (time.elapsed_secs() * 1000.0) as u64 % 5000 == 0 {
-        
         max_height.0 = terrain_store
             .quad_buffer
             .iter()
@@ -968,4 +1099,12 @@ fn stage_terrain_updates(
 ///Noise Resources for terrain generation
 struct NoiseStore {
     basic_perlin: Perlin,
+}
+
+fn angle_at(center: Vec3, a: Vec3, b: Vec3) -> f32 {
+    let e1 = (a - center).normalize();
+    let e2 = (b - center).normalize();
+    let dot = e1.dot(e2);
+    let cross = e1.cross(e2).length();
+    cross.atan2(dot) // no clamp needed
 }
