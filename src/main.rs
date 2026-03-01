@@ -27,9 +27,10 @@ use bevy::{
 };
 use bytemuck::{NoUninit, cast_slice};
 use noise::{NoiseFn, Perlin};
+use rayon::prelude::*;
 
 const VOXEL_SIZE_INPUT: u32 = 8;
-const RENDER_DISTANCE: f32 = 5000.;
+const RENDER_DISTANCE: f32 = 500.;
 const WINDOW_WIDTH: u32 = 960;
 const WINDOW_HEIGHT: u32 = 540;
 const MOVE_SPEED: f32 = 10.0;
@@ -455,6 +456,8 @@ struct GpuQuadInfo {
     y_max: f32,
     y_min: f32,
     _pad: IVec2,
+    n1: [f32; 4], //vertex normal of the vertex at world_coords (min_x, min_z). 4th value is unused
+    n2: [f32; 4], //vertex normal of the vertex at (x_max, z_min). 4th value is unused
 }
 #[repr(C, align(16))]
 #[derive(Component, Default, Clone, Copy, ExtractComponent, ShaderType, NoUninit)]
@@ -533,6 +536,9 @@ impl GpuQuadInfo {
             y_max,
             y_min,
             _pad: IVec2::default(),
+            //placeholders
+            n1: [0.,0.,0.,0.],
+            n2: [0.,0.,0.,0.],
         }
     }
 }
@@ -593,7 +599,7 @@ fn setup(
         basic_perlin: Perlin::new(seed),
     });
 
-    //TODO: MAKE THIS UPDATE
+    //placeholder
     commands.insert_resource(MaxHeight(8.));
 }
 
@@ -731,13 +737,13 @@ fn get_height(x: i32, z: i32, noise: &NoiseStore) -> f32 {
         .basic_perlin
         .get([x as f64 + FRAC_PI_4 as f64, z as f64 + FRAC_PI_4 as f64]) as f32;
 
-     let o2 = 5. *noise
+     let o2 = 5. * noise
         .basic_perlin
-        .get([(x as f64 + FRAC_PI_4 as f64)/50., (z as f64 + FRAC_PI_4 as f64)/50.]) as f32;
+        .get([(x as f64 + FRAC_PI_4 as f64)/70., (z as f64 + FRAC_PI_4 as f64)/70.]) as f32;
 
-    let o3 = 10. *noise
+    let o3 = 15. * noise
         .basic_perlin
-        .get([(x as f64 + FRAC_PI_4 as f64)/100., (z as f64 + FRAC_PI_4 as f64)/100.]) as f32;  
+        .get([(x as f64 + FRAC_PI_4 as f64)/200., (z as f64 + FRAC_PI_4 as f64)/200.]) as f32;  
 
     o1+o2+o3
 }
@@ -853,24 +859,38 @@ fn stage_terrain_updates(
         }
     };
 
-    //if just started, generate all voxels
+
+
+    //if just started, generate all voxels in parallel
     if need_init {
-        for z in (player_voxel.y - RENDER_DIST_VOXELS)..(player_voxel.y + RENDER_DIST_VOXELS) {
-            for x in (player_voxel.x - RENDER_DIST_VOXELS)..(player_voxel.x + RENDER_DIST_VOXELS) {
-                update_voxel(x, z);
+        let noise = noise.into_inner().to_owned();
+        let new_quads: Vec<(usize, GpuQuadInfo)> = ((player_voxel.y - RENDER_DIST_VOXELS)..(player_voxel.y + RENDER_DIST_VOXELS))
+            .into_par_iter()
+            .flat_map(|z|((player_voxel.x - RENDER_DIST_VOXELS)..(player_voxel.x + RENDER_DIST_VOXELS))
+            .map(move |x|(get_index(x, z), GpuQuadInfo::new_simple(IVec2::new(x, z), &noise))).collect::<Vec<(usize, GpuQuadInfo)>>())
+            .collect();
+
+        for (idx,quad) in new_quads {
+            if quad.y_max > max_added {
+                max_added = quad.y_max;
             }
+            changes.push((idx, quad));
+            terrain_store.quad_buffer[idx] = quad;           
         }
+
+
         terrain_store.initialized = true;
         max_height.0 = max_added;
         println!("Set max height to {}", max_height.0);
 
         //send changes to gpu
-        changes.sort_by(|a, b| a.0.cmp(&b.0));
+        //println!("Sorting started");
+        changes.sort_unstable_by(|a, b| a.0.cmp(&b.0));
         for (i, quad) in changes.clone() {
             terrain_store.quad_buffer[i] = quad;
             //println!("A change was made");
         }
-
+        //println!("Sorting finished");
         commands.insert_resource(PendingTerrainChanges { changes });
 
         return;
@@ -941,7 +961,7 @@ fn stage_terrain_updates(
         println!("Recomputed max height to {}", max_height.0);
     }
 
-    changes.sort_by(|a, b| a.0.cmp(&b.0));
+    changes.sort_unstable_by(|a, b| a.0.cmp(&b.0));
     for (i, quad) in changes.clone() {
         terrain_store.quad_buffer[i] = quad;
     }
