@@ -6,8 +6,19 @@ Planned Features/Addtions
 5. Ambient Occlusion
 6. Fog
 7. Sky Modeling
+    Impliment multiple models and allow switching between during runtime
+        1st, a purely analytical method like the Prethom or Hosek-Wilkie models
+
+        2nd, Use an integral approach
+        Keep the outermost integral (Volume Rendering Integral), and approximate with steps
+        Replace interior transmittance integrals with numerical approximations (using approximations of the chapman and error functions)
 8. Specular Highlights
 9. Reflections/Refractions (water too)
 10. Volumetric Clouds
 11. Improved terrain generation
+    Assign material based on height and steepness
 12. Dyanmic render distance based on player position (if possible)
+
+Other additions/ optimizations:
+1. Do initial terrain generation on a compute shader
+2. Experiment with portals/non euclidian geometry

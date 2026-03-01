@@ -24,6 +24,8 @@ struct GpuQuadInfo {
     y_max: f32,
     y_min: f32,
     _pad: vec2i,
+    n1: vec4f,
+    n2: vec4f,
 }
 
 //information about a single plane
