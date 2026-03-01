@@ -1,13 +1,8 @@
 use bevy::{
-    core_pipeline::{
+    anti_alias::fxaa::Fxaa, core_pipeline::{
         FullscreenShader,
         core_3d::graph::{Core3d, Node3d},
-    },
-    diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin},
-    ecs::query::QueryItem,
-    input::mouse::AccumulatedMouseMotion,
-    prelude::*,
-    render::{
+    }, diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin}, ecs::query::QueryItem, input::mouse::AccumulatedMouseMotion, prelude::*, render::{
         Extract, Render, RenderApp, RenderStartup, RenderSystems,
         extract_component::{ExtractComponent, ExtractComponentPlugin, UniformComponentPlugin},
         render_graph::{
@@ -22,12 +17,12 @@ use bevy::{
         },
         renderer::{RenderContext, RenderDevice, RenderQueue},
         view::ViewTarget,
-    },
-    window::{CursorGrabMode, CursorOptions, PresentMode, PrimaryWindow, WindowResolution},
+    }, window::{CursorGrabMode, CursorOptions, PresentMode, PrimaryWindow, WindowResolution}
 };
 use bytemuck::{NoUninit, cast_slice};
 use noise::{NoiseFn, Perlin};
 use rayon::prelude::*;
+use bevy::anti_alias::fxaa::*;
 
 const VOXEL_SIZE_INPUT: u32 = 8;
 const RENDER_DISTANCE: f32 = 500.;
@@ -561,7 +556,7 @@ fn setup(
     }
     */
 
-    commands.spawn((Camera3d::default(), Msaa::Off));
+    commands.spawn((Camera3d::default(), Msaa::Off, Fxaa {enabled: true, edge_threshold: Sensitivity::Low, edge_threshold_min: Sensitivity::Low}));
 
     //add sun
     commands.spawn((
