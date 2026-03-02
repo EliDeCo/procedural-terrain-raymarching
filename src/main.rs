@@ -31,8 +31,8 @@ use bytemuck::{NoUninit, cast_slice};
 use noise::{NoiseFn, Perlin};
 use rayon::prelude::*;
 
-const VOXEL_SIZE_INPUT: u32 = 8;
-const RENDER_DISTANCE: f32 = 500.;
+const VOXEL_SIZE_INPUT: u32 = 4;
+const RENDER_DISTANCE: f32 = 5000.;
 const WINDOW_WIDTH: u32 = 960;
 const WINDOW_HEIGHT: u32 = 540;
 const MOVE_SPEED: f32 = 10.0;
