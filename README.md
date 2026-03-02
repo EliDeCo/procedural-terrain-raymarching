@@ -1,5 +1,7 @@
 # Procedural Terrain Raymarching
 
+![Current Project State](https://github.com/EliDeCo/procedural-terrain-raymarching/blob/main/media/Smooth_shading.png)
+
 > Real-time 2.5D procedural terrain renderer built in Rust using Bevy and WGSL.
 
 ---
@@ -12,15 +14,6 @@ The primary goals of this project are:
 - Explore the performance characteristics of raymarching
 - Implement realistic lighting features in a raymarched terrain context
 - Benchmark and document optimization strategies
-
----
-
-## Current Status
-
-- Custom raymarching pipeline integrated into Bevy
-- Fragment shader ray setup
-- Simple perlin noise terrain
-- Flat lambertian diffuse shading 
 
 ---
 
@@ -50,7 +43,7 @@ High-level pipeline:
 
 These define the minimum complete renderer:
 - [x] Heightmap intersection with Lambertian diffuse shading
-- [ ] Smooth normal computation
+- [x] Smooth normal computation
 - [ ] Hard shadows
 - [ ] Exponential fog
 - [ ] Basic sky model
@@ -83,14 +76,6 @@ Terrain lighting effects like soft shadows, ambient occlusion, and volumetric sc
 
 ---
 
-## Media
-
-![Flat Lambertian Shaded Landscape](https://github.com/EliDeCo/procedural-terrain-raymarching/blob/main/media/Flat_Lambertian_Diffuse%20.png "Logo Title Text 1")
-
-
-
----
-
 ## Background
 
 This is the successor to [Planet Simulator](https://github.com/EliDeCo/Planet-Simulator), which used a chunk-based rasterized quadsphere. After hitting performance and visual quality limits — particularly around chunk stitching and atmospheric lighting — the project was rebuilt around a raymarching approach.
@@ -106,4 +91,4 @@ cd Procedural-Terrain-Raymarching
 cargo run --release
 ```
 
-Release mode is highly recommended, as debug builds will likely have reduced performance.
+Release mode is hrecommended, as debug builds will likely have reduced performance.
