@@ -1,6 +1,6 @@
 const EPS: f32 = 0.000001;
 const SKY: vec3f = vec3f(0.53, 0.81, 0.92);
-const LIGHT_DIR: vec3f = vec3f(0.5, -0.70710678, -0.5);
+const LIGHT_DIR: vec3f = (vec3f(0.5, -0.70710678, -0.5));
 
 //Base info
 struct Uniform {
