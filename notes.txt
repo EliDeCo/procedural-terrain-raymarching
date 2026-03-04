@@ -1,17 +1,20 @@
-Planned Features/Addtions
-1. Get basic raymarching functionality (flat lambertian diffuse shading)
-2. Smooth normals
+To-Do
+X Get basic raymarching functionality (flat lambertian diffuse shading)
+X Smooth normals
 3. Hard Shadows
 4. Soft Shadows
 5. Ambient Occlusion
 6. Fog
 7. Sky Modeling
     Impliment multiple models and allow switching between during runtime
-        1st, a purely analytical method like the Prethom or Hosek-Wilkie models
+        1st, a purely analytical method like the Preetham or Hosek-Wilkie models
 
         2nd, Use an integral approach
         Keep the outermost integral (Volume Rendering Integral), and approximate with steps
         Replace interior transmittance integrals with numerical approximations (using approximations of the chapman and error functions)
+
+    For getting the terrain to reflect the sky color, cast a ray from the hit point to the sun and calculate scattering.
+    Can also compute a LUT of (altitude, sun_angle) to make it much faster
 8. Specular Highlights
 9. Reflections/Refractions (water too)
 10. Volumetric Clouds
@@ -21,4 +24,8 @@ Planned Features/Addtions
 
 Other additions/ optimizations:
 1. Do initial terrain generation on a compute shader
+3. MipMap Acceleration Structure
 2. Experiment with portals/non euclidian geometry
+4. Impliment 3d BVH traversal and compare performance
+5. Impliment 3d SVO traversal and compare performance
+

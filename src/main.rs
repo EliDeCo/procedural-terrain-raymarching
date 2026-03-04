@@ -31,8 +31,8 @@ use bytemuck::{NoUninit, cast_slice};
 use noise::{NoiseFn, Perlin};
 use rayon::prelude::*;
 
-const VOXEL_SIZE_INPUT: u32 = 4;
-const RENDER_DISTANCE: f32 = 5000.;
+const VOXEL_SIZE_INPUT: u32 = 16;
+const RENDER_DISTANCE: f32 = 4096.;
 const WINDOW_WIDTH: u32 = 960;
 const WINDOW_HEIGHT: u32 = 540;
 const MOVE_SPEED: f32 = 10.0;
@@ -1008,7 +1008,7 @@ fn stage_terrain_updates(
 
         terrain_store.initialized = true;
         max_height.0 = max_added;
-        println!("Set max height to {}", max_height.0);
+        //println!("Set max height to {}", max_height.0);
 
         //send changes to gpu
         //println!("Sorting started");
@@ -1084,7 +1084,7 @@ fn stage_terrain_updates(
             .map(|q| q.y_max)
             .reduce(f32::max)
             .unwrap_or(0.0);
-        println!("Recomputed max height to {}", max_height.0);
+        //println!("Recomputed max height to {}", max_height.0);
     }
 
     changes.sort_unstable_by(|a, b| a.0.cmp(&b.0));
@@ -1106,5 +1106,5 @@ fn angle_at(center: Vec3, a: Vec3, b: Vec3) -> f32 {
     let e2 = (b - center).normalize();
     let dot = e1.dot(e2);
     let cross = e1.cross(e2).length();
-    cross.atan2(dot) // no clamp needed
+    cross.atan2(dot)
 }
