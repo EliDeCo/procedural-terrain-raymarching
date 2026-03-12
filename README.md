@@ -90,5 +90,3 @@ git clone https://github.com/EliDeCo/procedural-terrain-raymarching.git
 cd Procedural-Terrain-Raymarching
 cargo run --release
 ```
-
-Release mode is hrecommended, as debug builds will likely have reduced performance.
