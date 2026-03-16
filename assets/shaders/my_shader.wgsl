@@ -2,7 +2,7 @@ const EPS: f32 = 0.000001;
 const SKY: vec3f = vec3f(0.53, 0.81, 0.92);
 const LIGHT_DIR: vec3f = (vec3f(0.5, -0.70710678, -0.5));
 const LIGHT_DIR_INV: vec3f = -LIGHT_DIR;
-const K: f32 = 8;
+const LIGHT_ANGULAR_SIZE: f32 = 0.1; // angular size of the sun/moon in radians
 const AMBIENT = 0.1;
 
 //Base info
@@ -485,8 +485,7 @@ fn traverse_shadow(origin: vec3f, dir: vec3f) -> f32 {
             //reached render distance
             return occlusion;
         }
-
-        occlusion = min(occlusion, K * get_sdf(ray_end,current_voxel) / t_current);
+        occlusion = min(occlusion, get_sdf(ray_end,current_voxel) / (LIGHT_ANGULAR_SIZE * t_current));
     }
     return occlusion;
 }
