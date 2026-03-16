@@ -2,7 +2,7 @@
 
 ![Current Project State](https://github.com/EliDeCo/procedural-terrain-raymarching/blob/main/media/Smooth_shading.png)
 
-> Real-time 2.5D procedural terrain renderer built in Rust using Bevy and WGSL.
+![Current Project State](https://github.com/EliDeCo/procedural-terrain-raymarching/blob/main/media/Smooth_Shadows.PNG)
 
 ---
 
@@ -41,7 +41,6 @@ High-level pipeline:
 
 ## Core Milestones
 
-These define the minimum complete renderer:
 - [x] Heightmap intersection with Lambertian diffuse shading
 - [x] Smooth normal computation
 - [X] Hard shadows
@@ -52,8 +51,7 @@ These define the minimum complete renderer:
 
 ## Planned Enhancements
 
-After core rendering is stable and benchmarked:
-- [ ] Soft shadows
+- [X] Soft shadows
 - [ ] Specular highlights
 - [ ] Planar water reflections
 - [ ] Ambient occlusion
@@ -72,7 +70,7 @@ After core rendering is stable and benchmarked:
 
 ## Motivation
 
-Terrain lighting effects like soft shadows, ambient occlusion, and volumetric scattering require sampling the scene at arbitrary points — something that maps naturally onto a raymarcher while requiring extra work in a rasterized pipeline. This project explores the tradeoffs between different rendering methods when it comes to performance and implimentation clarity.
+Terrain lighting effects like soft shadows, ambient occlusion, and volumetric scattering require sampling the scene at an extreme number points — something that maps naturally onto a raymarcher while requiring extra work in a rasterized pipeline. This project explores the tradeoffs between different rendering methods when it comes to performance and implimentation clarity.
 
 ---
 
