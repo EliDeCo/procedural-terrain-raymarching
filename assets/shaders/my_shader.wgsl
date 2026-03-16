@@ -3,7 +3,7 @@ const SKY: vec3f = vec3f(0.53, 0.81, 0.92);
 //const LIGHT_DIR: vec3f = (vec3f(0.6533, -0.3827, -0.6533));
 const LIGHT_DIR: vec3f = (vec3f(0.5, -0.70710678, -0.5));
 const LIGHT_DIR_INV: vec3f = -LIGHT_DIR;
-const LIGHT_ANGULAR_SIZE: f32 = 0.05; // angular size of the sun/moon in radians
+const LIGHT_ANGULAR_SIZE: f32 = 0.03; // angular size of the sun/moon in radians
 const AMBIENT = 0.05;
 
 //Base info
@@ -489,74 +489,11 @@ fn traverse_shadow(origin: vec3f, dir: vec3f) -> f32 {
             //reached render distance
             return occlusion;
         }
-
-        //use the sdf data to modify shadow occlusion
-        /* 
-        let h = get_sdf(ray_end,current_voxel);
-        let y= h*h/(2*ph);
-        let d = sqrt(h*h-y*y);
-        occlusion = min( occlusion, d/(LIGHT_ANGULAR_SIZE*max(0.0,t_current-y)) );
-        ph = h;
-        */
         occlusion = min(occlusion, get_sdf(ray_end,current_voxel) / (t_current * LIGHT_ANGULAR_SIZE) );
     }
     return occlusion;
 }
 
-//traverse_shadow function but with sphere tracing
-fn traverse_shadow_sphere(origin: vec3f, dir: vec3f) -> f32 {
-    var t_current = 0.0;
-    let ray_dir_xz = dir.xz;
-    let t_max = unif.render_distance / length(ray_dir_xz);
-    let ray_dir_y = dir.y;
-    let tilted_up = ray_dir_y > 0;
-    var occlusion = 1.0;
-    var ph = 1e20;
-    
-
-    if length(ray_dir_xz) < EPS {
-        return 1.0;
-    }
-
-    if origin.y > unif.max_height {
-        if ray_dir_y >= 0.0 {
-            return 1.0;
-        }
-        let t_to_max_height = (unif.max_height - origin.y) / ray_dir_y;
-        if t_to_max_height > t_max {
-            return 1.0;
-        }
-        t_current = t_to_max_height;
-    }
-
-    loop {
-        let ray_end = origin + dir * t_current;
-
-        if tilted_up && ray_end.y > unif.max_height {
-            return occlusion;
-        }
-        if t_current > t_max {
-            return occlusion;
-        }
-
-        let current_voxel = to_voxel(ray_end);
-        let h = get_sdf(ray_end, current_voxel);
-
-        // hit terrain
-        if h < 0.001 {
-            return 0.0;
-        }
-
-        let y = h * h / (2.0 * ph);
-        let d = sqrt(h * h - y * y);
-        occlusion = min(occlusion, d / (LIGHT_ANGULAR_SIZE * max(0.0, t_current - y)));
-        ph = h;
-
-        t_current += h;
-    }
-
-    return occlusion;
-}
 
 fn get_sdf(point: vec3f, voxel_coords: vec2i) -> f32 {
     let vertices = get_vertices(voxel_coords);
@@ -567,6 +504,8 @@ fn get_sdf(point: vec3f, voxel_coords: vec2i) -> f32 {
     let h_far  = mix( vertices[0].y,  vertices[3].y, frac.x);
     let height = max(0, point.y - mix(h_near, h_far, frac.y));
 
+    return height; //not an actual sdf but much cheaper and good enough in most cases
+    /* 
     //check at least "terrain_height" meters in each direction for the sdf
     //let check_radius = ceil(height * unif.inv_voxel_size);
     let check_radius =  1;
@@ -587,8 +526,9 @@ fn get_sdf(point: vec3f, voxel_coords: vec2i) -> f32 {
 
         }
     }
-    //return height;
+
     return max(0.0, sqrt(min_dist));
+    */
 }
 
 //gets all 4 vertices of the given quad
@@ -606,6 +546,7 @@ fn dot2(v: vec3f) -> f32 {
     return dot(v, v);
 }
 
+/* 
 //Returns distance squared to the triangle
 //Points must be wound CCW
 fn udTriangle(p: vec3f, a: vec3f, b: vec3f, c: vec3f) -> f32 {
@@ -626,3 +567,4 @@ fn udTriangle(p: vec3f, a: vec3f, b: vec3f, c: vec3f) -> f32 {
         sign(dot(cross(ac,n),pc)) < 2.0
     );
 }
+    */
