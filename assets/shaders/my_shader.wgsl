@@ -3,7 +3,7 @@ const SKY: vec3f = vec3f(0.53, 0.81, 0.92);
 //const LIGHT_DIR: vec3f = (vec3f(0.6533, -0.3827, -0.6533));
 const LIGHT_DIR: vec3f = (vec3f(0.5, -0.70710678, -0.5));
 const LIGHT_DIR_INV: vec3f = -LIGHT_DIR;
-const LIGHT_ANGULAR_SIZE: f32 = 0.03; // angular size of the sun/moon in radians
+const LIGHT_ANGULAR_SIZE: f32 = 0.05; // angular size of the sun/moon in radians
 const AMBIENT = 0.05;
 
 //Base info
