@@ -1,9 +1,10 @@
-const EPS: f32 = 0.000001;
+const EPS: f32 = 0.01;
 const SKY: vec3f = vec3f(0.53, 0.81, 0.92);
+//const LIGHT_DIR: vec3f = (vec3f(0.6533, -0.3827, -0.6533));
 const LIGHT_DIR: vec3f = (vec3f(0.5, -0.70710678, -0.5));
 const LIGHT_DIR_INV: vec3f = -LIGHT_DIR;
-const LIGHT_ANGULAR_SIZE: f32 = 0.1; // angular size of the sun/moon in radians
-const AMBIENT = 0.1;
+const LIGHT_ANGULAR_SIZE: f32 = 0.05; // angular size of the sun/moon in radians
+const AMBIENT = 0.05;
 
 //Base info
 struct Uniform {
@@ -98,7 +99,9 @@ fn frag_main(@builtin(position) frag_coords: vec4f) -> @location(0) vec4f {
 
     let direction = normalize(far - origin);
 
+
     let hit = traverse(origin, direction);
+
 
     if hit.material_id == -1 {
         return vec4f(SKY,1);
@@ -386,6 +389,7 @@ fn traverse_shadow(origin: vec3f, dir: vec3f) -> f32 {
     let ray_dir_y = dir.y;
     let tilted_up = ray_dir_y > 0;
     var occlusion = 1.;
+    var ph = 1e20;
     
     if ray_origin_y > unif.max_height {
         // Ray pointing up or horizontal while above max height, will never hit terrain
@@ -485,25 +489,140 @@ fn traverse_shadow(origin: vec3f, dir: vec3f) -> f32 {
             //reached render distance
             return occlusion;
         }
-        occlusion = min(occlusion, get_sdf(ray_end,current_voxel) / (LIGHT_ANGULAR_SIZE * t_current));
+
+        //use the sdf data to modify shadow occlusion
+        /* 
+        let h = get_sdf(ray_end,current_voxel);
+        let y= h*h/(2*ph);
+        let d = sqrt(h*h-y*y);
+        occlusion = min( occlusion, d/(LIGHT_ANGULAR_SIZE*max(0.0,t_current-y)) );
+        ph = h;
+        */
+        occlusion = min(occlusion, get_sdf(ray_end,current_voxel) / (t_current * LIGHT_ANGULAR_SIZE) );
     }
     return occlusion;
 }
 
-//TODO: IMPLIMENT THIS TO INCLUDE NEIGHBORING CELLS AND ACTUALLY CHECK HORIZONTALLY
-//currently just gives height
-fn get_sdf(point: vec3f, voxel_coords: vec2i) -> f32 {
-    let idx = get_index(voxel_coords.x, voxel_coords.y);
-    let quad = quads[idx];
-    let adj_idx = get_index(voxel_coords.x, voxel_coords.y + 1);
-    let adj_quad = quads[adj_idx];
+//traverse_shadow function but with sphere tracing
+fn traverse_shadow_sphere(origin: vec3f, dir: vec3f) -> f32 {
+    var t_current = 0.0;
+    let ray_dir_xz = dir.xz;
+    let t_max = unif.render_distance / length(ray_dir_xz);
+    let ray_dir_y = dir.y;
+    let tilted_up = ray_dir_y > 0;
+    var occlusion = 1.0;
+    var ph = 1e20;
+    
 
-    let frac = (point.xz - quad.world_coords) * unif.inv_voxel_size;
+    if length(ray_dir_xz) < EPS {
+        return 1.0;
+    }
 
-    let h_near = mix(quad.pos_1.y, quad.pos_2.y, frac.x);
-    let h_far  = mix(adj_quad.pos_1.y, adj_quad.pos_2.y, frac.x);
-    let terrain_height = mix(h_near, h_far, frac.y);
+    if origin.y > unif.max_height {
+        if ray_dir_y >= 0.0 {
+            return 1.0;
+        }
+        let t_to_max_height = (unif.max_height - origin.y) / ray_dir_y;
+        if t_to_max_height > t_max {
+            return 1.0;
+        }
+        t_current = t_to_max_height;
+    }
 
-    return max(0.0, point.y - terrain_height);
+    loop {
+        let ray_end = origin + dir * t_current;
+
+        if tilted_up && ray_end.y > unif.max_height {
+            return occlusion;
+        }
+        if t_current > t_max {
+            return occlusion;
+        }
+
+        let current_voxel = to_voxel(ray_end);
+        let h = get_sdf(ray_end, current_voxel);
+
+        // hit terrain
+        if h < 0.001 {
+            return 0.0;
+        }
+
+        let y = h * h / (2.0 * ph);
+        let d = sqrt(h * h - y * y);
+        occlusion = min(occlusion, d / (LIGHT_ANGULAR_SIZE * max(0.0, t_current - y)));
+        ph = h;
+
+        t_current += h;
+    }
+
+    return occlusion;
 }
 
+fn get_sdf(point: vec3f, voxel_coords: vec2i) -> f32 {
+    let vertices = get_vertices(voxel_coords);
+
+    let frac = (point.xz - vertices[1].xz) * unif.inv_voxel_size;
+
+    let h_near = mix( vertices[1].y,  vertices[2].y, frac.x);
+    let h_far  = mix( vertices[0].y,  vertices[3].y, frac.x);
+    let height = max(0, point.y - mix(h_near, h_far, frac.y));
+
+    //check at least "terrain_height" meters in each direction for the sdf
+    //let check_radius = ceil(height * unif.inv_voxel_size);
+    let check_radius =  1;
+    var min_dist = height * height; //working in squared distance for now
+    
+    //check neighboring triangles and find the shortest distance
+    for (var dz = -i32(check_radius); dz <= i32(check_radius); dz++) {
+        for (var dx = -i32(check_radius); dx <= i32(check_radius); dx++) {
+
+            let coords = voxel_coords + vec2i(dx, dz);
+            let vertexes = get_vertices(coords);
+
+            //lower triangle
+            min_dist = min(min_dist, udTriangle(point,vertexes[0],vertexes[1],vertexes[2]));
+
+            //upper triangle
+            min_dist = min(min_dist, udTriangle(point,vertexes[0],vertexes[2],vertexes[3]));
+
+        }
+    }
+    //return height;
+    return max(0.0, sqrt(min_dist));
+}
+
+//gets all 4 vertices of the given quad
+//Wound CCW starting from top left
+fn get_vertices(coords: vec2i) -> array<vec3f, 4> {
+    let idx = get_index(coords.x, coords.y);
+    let quad = quads[idx];
+    let adj_idx = get_index(coords.x, coords.y + 1);
+    let adj_quad = quads[adj_idx];
+
+    return array<vec3f, 4>(adj_quad.pos_1.xyz,quad.pos_1.xyz,quad.pos_2.xyz,adj_quad.pos_2.xyz);
+}
+
+fn dot2(v: vec3f) -> f32 {
+    return dot(v, v);
+}
+
+//Returns distance squared to the triangle
+//Points must be wound CCW
+fn udTriangle(p: vec3f, a: vec3f, b: vec3f, c: vec3f) -> f32 {
+    let ba = b - a; let pa = p - a;
+    let cb = c - b; let pb = p - b;
+    let ac = a - c; let pc = p - c;
+    let n = cross(ba, ac);
+
+    return select(
+        dot(n,pa)*dot(n,pa)/dot2(n),
+        min(min(
+            dot2(ba * clamp(dot(ba,pa)/dot2(ba),0.,1.) - pa),
+            dot2(cb * clamp(dot(cb,pb)/dot2(cb),0.,1.) - pb)),
+            dot2(ac * clamp(dot(ac,pc)/dot2(ac),0.,1.) - pc)),
+        // sign test to determine if inside all three edges
+        sign(dot(cross(ba,n),pa)) +
+        sign(dot(cross(cb,n),pb)) +
+        sign(dot(cross(ac,n),pc)) < 2.0
+    );
+}

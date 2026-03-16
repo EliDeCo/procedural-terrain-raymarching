@@ -21,6 +21,7 @@ X Smooth normals
 11. Improved terrain generation
     Assign material based on height and steepness
 12. Dyanmic render distance based on player position (if possible)
+13. Optimize barycentric calculations
 
 Other additions/ optimizations:
 1. Do initial terrain generation on a compute shader
@@ -29,4 +30,6 @@ Other additions/ optimizations:
 4. Impliment 3d BVH traversal and compare performance
 5. Impliment 3d SVO traversal and compare performance
 6. Use regression to generate a local sdf for each cell. This could make overhangy terrain possible
+7. Use the local sdf to speed up stepping?
+8. Remove branching using select statements
 
