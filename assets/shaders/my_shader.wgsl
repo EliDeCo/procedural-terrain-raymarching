@@ -2,6 +2,8 @@ const EPS: f32 = 0.000001;
 const SKY: vec3f = vec3f(0.53, 0.81, 0.92);
 const LIGHT_DIR: vec3f = (vec3f(0.5, -0.70710678, -0.5));
 const LIGHT_DIR_INV: vec3f = -LIGHT_DIR;
+const K: f32 = 8;
+const AMBIENT = 0.1;
 
 //Base info
 struct Uniform {
@@ -61,9 +63,9 @@ struct GpuMaterial {
 }
 
 struct HitInfo {
-    pos: vec3f,
-    material_id: i32,
-    normal: vec3f,
+    pos: vec3f, //hit position
+    material_id: i32, //id of the hit material
+    normal: vec3f, //surface normal at hit position
 }
 
 @group(0) @binding(0) 
@@ -102,23 +104,12 @@ fn frag_main(@builtin(position) frag_coords: vec4f) -> @location(0) vec4f {
         return vec4f(SKY,1);
     }
 
-    var color = shade(materials[hit.material_id].base_color,hit.normal);
-    
-    //testing hard shadows
-    let shadow_hit = traverse(hit.pos+(0.01 * LIGHT_DIR_INV),LIGHT_DIR_INV);
-    if shadow_hit.material_id != -1 {
-        color *= 0.1;
-        //color = vec3f(0.7,0,0);
-    }
+    //let diffuse = shade(materials[hit.material_id].base_color,hit.normal);
+    let diffuse = max(0,dot(hit.normal,LIGHT_DIR_INV));
+    let shadow =  traverse_shadow(hit.pos + 0.01 * LIGHT_DIR_INV,LIGHT_DIR_INV);
+    let final_color = materials[hit.material_id].base_color * (AMBIENT + diffuse * shadow);
 
-    return vec4f(color,1);
-    
-}
-
-fn shade(base_color: vec3f, normal: vec3f) -> vec3f {
-    let ambient = 0.1;
-    let diffuse = max(dot(normal,-LIGHT_DIR),0);
-    return base_color * (ambient + diffuse);
+    return vec4f(final_color,1);
 }
 
 
@@ -318,9 +309,9 @@ fn barycentric(p: vec3<f32>, a: vec3<f32>, b: vec3<f32>, c: vec3<f32>) -> vec3<f
     let d11 = dot(v1, v1);
     let d20 = dot(v2, v0);
     let d21 = dot(v2, v1);
-    let denom = d00 * d11 - d01 * d01;
-    let v = (d11 * d20 - d01 * d21) / denom;
-    let w = (d00 * d21 - d01 * d20) / denom;
+    let inv_denom = 1 /(d00 * d11 - d01 * d01);
+    let v = (d11 * d20 - d01 * d21) * inv_denom;
+    let w = (d00 * d21 - d01 * d20) * inv_denom;
     let u = 1.0 - v - w;
     return vec3<f32>(u, v, w);
 }
@@ -383,3 +374,137 @@ fn intersect(origin: vec3f, dir: vec3f, quad: GpuQuadInfo, enter: vec3f, exit: v
         }
     }
 }
+
+///Returns a float that should be multiplied by the albedo of the terrain to get its final color
+fn traverse_shadow(origin: vec3f, dir: vec3f) -> f32 {
+    var t_current = 0.0;
+    let ray_dir_xz = dir.xz;
+    let t_max = unif.render_distance / length(ray_dir_xz);
+    var current_voxel = to_voxel(origin);
+    let ray_origin_y = origin.y;
+    var ray_end = origin;
+    let ray_dir_y = dir.y;
+    let tilted_up = ray_dir_y > 0;
+    var occlusion = 1.;
+    
+    if ray_origin_y > unif.max_height {
+        // Ray pointing up or horizontal while above max height, will never hit terrain
+        if ray_dir_y >= 0.0 {
+            return 1;
+        }
+
+        // Advance ray to where it first hits max_height
+        let t_to_max_height = (unif.max_height - ray_origin_y) / ray_dir_y;
+        if t_to_max_height > t_max {
+            return 1;
+        }
+
+        // Skip ahead to that point
+        t_current = t_to_max_height;
+        ray_end = origin + dir * t_current;
+        current_voxel = to_voxel(origin + dir * t_current);
+    }
+
+    //Near vertical ray (basically impossible to occlude in a heightmap)
+    if length(ray_dir_xz) < EPS {
+        return 1;
+    }
+
+    let offset: vec2f = vec2f(
+        select(0.0, 1.0, dir.x > 0.0),
+        select(0.0, 1.0, dir.z > 0.0),
+    );
+
+    let next_boundary: vec2f = vec2f(
+        (f32(current_voxel.x) + offset.x) * unif.voxel_size,
+        (f32(current_voxel.y) + offset.y) * unif.voxel_size,
+    );
+
+    //must be initalized per component to avoid dividing by 0
+    var t_vec = vec2f(0,0);
+    var delta = vec2f(0,0);
+    // X axis
+    if ray_dir_xz.x != 0.0 {
+        let inv = 1.0 / ray_dir_xz.x;
+        delta.x = unif.voxel_size * abs(inv);
+        t_vec.x = (next_boundary.x - origin.x) * inv;
+    } else {
+        delta.x = 1e30;
+        t_vec.x = 1e30;
+    }
+
+    // Z axis
+    if ray_dir_xz.y != 0.0 {
+        let inv = 1.0 / ray_dir_xz.y;
+        delta.y = unif.voxel_size * abs(inv);
+        t_vec.y = (next_boundary.y - origin.z) * inv;
+    } else {
+        delta.y = 1e30;
+        t_vec.y = 1e30;
+    }
+
+    let step: vec2i = vec2i(
+    i32(sign(dir.x)),
+    i32(sign(dir.z)),
+    );
+
+    loop {
+        //If our ray is tilted up and is above the highest known terrain, we can stop marching as it will never collide
+        if tilted_up && ray_end.y > unif.max_height {
+            return occlusion;
+        }
+
+        let t_next = min(t_vec.x,t_vec.y);
+
+        let enter_point = origin + dir * t_current;
+        let exit_point = origin + dir * t_next;
+
+        let idx = get_index(current_voxel.x, current_voxel.y);
+        let quad = quads[idx];
+        let some_hit = intersect(origin, dir, quad, enter_point, exit_point);
+
+        if some_hit.material_id != -1 {
+            return 0;
+        }
+
+        //See which quad edge we intersected first
+        if t_vec.x < t_vec.y {
+            //intersected with x plane first
+            current_voxel.x += step.x;
+            t_vec.x += delta.x;
+        } else {
+            //intersected with z plane first
+            current_voxel.y += step.y;
+            t_vec.y += delta.y;
+        }
+
+        t_current = t_next;
+        ray_end = origin + t_current * dir;
+
+        if t_current > t_max {
+            //reached render distance
+            return occlusion;
+        }
+
+        occlusion = min(occlusion, K * get_sdf(ray_end,current_voxel) / t_current);
+    }
+    return occlusion;
+}
+
+//TODO: IMPLIMENT THIS TO INCLUDE NEIGHBORING CELLS AND ACTUALLY CHECK HORIZONTALLY
+//currently just gives height
+fn get_sdf(point: vec3f, voxel_coords: vec2i) -> f32 {
+    let idx = get_index(voxel_coords.x, voxel_coords.y);
+    let quad = quads[idx];
+    let adj_idx = get_index(voxel_coords.x, voxel_coords.y + 1);
+    let adj_quad = quads[adj_idx];
+
+    let frac = (point.xz - quad.world_coords) * unif.inv_voxel_size;
+
+    let h_near = mix(quad.pos_1.y, quad.pos_2.y, frac.x);
+    let h_far  = mix(adj_quad.pos_1.y, adj_quad.pos_2.y, frac.x);
+    let terrain_height = mix(h_near, h_far, frac.y);
+
+    return max(0.0, point.y - terrain_height);
+}
+

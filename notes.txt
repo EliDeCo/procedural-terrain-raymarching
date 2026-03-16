@@ -28,4 +28,5 @@ Other additions/ optimizations:
 2. Experiment with portals/non euclidian geometry
 4. Impliment 3d BVH traversal and compare performance
 5. Impliment 3d SVO traversal and compare performance
+6. Use regression to generate a local sdf for each cell. This could make overhangy terrain possible
 
