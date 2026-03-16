@@ -867,7 +867,23 @@ fn get_height(x: i32, z: i32, noise: &NoiseStore) -> f32 {
             (z as f64 + FRAC_PI_4 as f64) / 200.,
         ]) as f32;
 
-    o1 + o2 + o3
+    let _ = 100.
+        * noise.basic_perlin.get([
+            (x as f64 + FRAC_PI_4 as f64) / 1000.,
+            (z as f64 + FRAC_PI_4 as f64) / 1000.,
+        ]) as f32;
+
+    let o_a = match (x+5) % 7 {
+        0 => 15,
+        _ => 0
+    } as f32;
+
+    let o_b = match (z+5) % 7 {
+        0 => 15,
+        _ => 0
+    } as f32;
+
+    o1 + o2 + o3 + o_a + o_b
 }
 
 ///marker component for fps text

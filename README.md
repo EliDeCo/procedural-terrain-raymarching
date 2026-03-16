@@ -44,7 +44,7 @@ High-level pipeline:
 These define the minimum complete renderer:
 - [x] Heightmap intersection with Lambertian diffuse shading
 - [x] Smooth normal computation
-- [ ] Hard shadows
+- [X] Hard shadows
 - [ ] Exponential fog
 - [ ] Basic sky model
 

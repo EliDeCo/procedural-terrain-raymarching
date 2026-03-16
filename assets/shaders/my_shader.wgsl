@@ -1,6 +1,7 @@
 const EPS: f32 = 0.000001;
 const SKY: vec3f = vec3f(0.53, 0.81, 0.92);
 const LIGHT_DIR: vec3f = (vec3f(0.5, -0.70710678, -0.5));
+const LIGHT_DIR_INV: vec3f = -LIGHT_DIR;
 
 //Base info
 struct Uniform {
@@ -101,9 +102,17 @@ fn frag_main(@builtin(position) frag_coords: vec4f) -> @location(0) vec4f {
         return vec4f(SKY,1);
     }
 
-    let color = shade(materials[hit.material_id].base_color,hit.normal);
-    //let color = hit.normal;
+    var color = shade(materials[hit.material_id].base_color,hit.normal);
+    
+    //testing hard shadows
+    let shadow_hit = traverse(hit.pos+(0.01 * LIGHT_DIR_INV),LIGHT_DIR_INV);
+    if shadow_hit.material_id != -1 {
+        color *= 0.1;
+        //color = vec3f(0.7,0,0);
+    }
+
     return vec4f(color,1);
+    
 }
 
 fn shade(base_color: vec3f, normal: vec3f) -> vec3f {
