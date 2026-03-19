@@ -31,20 +31,42 @@ use bytemuck::{NoUninit, cast_slice};
 use noise::{NoiseFn, Perlin};
 use rayon::prelude::*;
 
-const VOXEL_SIZE_INPUT: u32 = 16;
-const RENDER_DISTANCE: f32 = 4096.;
+//INPUTS
+const DESIRED_VOXEL_SIZE: u32 = 15;
+const RENDER_DISTANCE: f32 = 5000.;
 const WINDOW_WIDTH: u32 = 960;
 const WINDOW_HEIGHT: u32 = 540;
 const MOVE_SPEED: f32 = 10.0;
 
+//CONSTANTS
 const FRAC_PI_4: f32 = std::f32::consts::FRAC_PI_4;
 const PITCH_LIMIT: f32 = FRAC_PI_4;
-const VOXEL_SIZE: f32 = VOXEL_SIZE_INPUT as f32;
-const INV_VOXEL_SIZE: f32 = 1.0 / VOXEL_SIZE;
-//const EPS: f32 = 1e-5;
-const RENDER_DIST_VOXELS: i32 = (RENDER_DISTANCE / VOXEL_SIZE) as i32;
-const BUFFER_SIZE: i32 = RENDER_DIST_VOXELS as i32 * 2;
 const SHADER_ASSET_PATH: &str = "shaders/my_shader.wgsl";
+
+//PRECALCULATIONS
+const TOTAL_SPAN: f32 = RENDER_DISTANCE * 2.;
+const DESIRED_CHUNKS_PER_EDGE: u32 = (TOTAL_SPAN / DESIRED_VOXEL_SIZE as f32) as u32;
+const BUFFER_SIZE: i32 = nearest_power_of_two(DESIRED_CHUNKS_PER_EDGE) as i32;
+const RENDER_DIST_VOXELS: i32 = BUFFER_SIZE >> 1;
+const VOXEL_SIZE: f32 = ((TOTAL_SPAN / BUFFER_SIZE as f32) as u32) as f32; //must be whole number, but type f32 to avoid casting u32 -> f32 frequently
+const INV_VOXEL_SIZE: f32 = 1.0 / VOXEL_SIZE;
+const BUFFER_MASK:  usize = (BUFFER_SIZE - 1) as usize;
+const BUFFER_SHIFT: usize = BUFFER_SIZE.trailing_zeros() as usize;
+
+
+const fn nearest_power_of_two(x: u32) -> u32 {
+    if x.is_power_of_two() { return x; }
+
+    let next = x.next_power_of_two();
+    let prev = next >> 1;
+
+    // Compare which is closer
+    if x - prev <= next - x {
+        prev
+    } else {
+        next
+    }
+}
 
 fn main() {
     App::new()
@@ -237,7 +259,8 @@ fn extract_data(
             window.physical_height() as f32,
         ),
         world_from_clip,
-        _pad: IVec2::default(),
+        buffer_mask: BUFFER_MASK as u32,
+        buffer_shift: BUFFER_SHIFT as u32,
         render_distance: RENDER_DISTANCE,
         voxel_size: VOXEL_SIZE,
         inv_voxel_size: INV_VOXEL_SIZE,
@@ -385,7 +408,8 @@ struct MyPassLabel;
 struct Uniform {
     world_from_clip: Mat4,
     resolution: Vec2,
-    _pad: IVec2,
+    buffer_mask: u32,
+    buffer_shift: u32,
     render_distance: f32,
     voxel_size: f32,
     inv_voxel_size: f32,
@@ -673,6 +697,10 @@ fn setup(
     }
     */
 
+    println!("Actual voxel size: {}", VOXEL_SIZE);
+    println!("Buffer size: {}", BUFFER_SIZE);
+    println!("Actual render distance: {}", RENDER_DIST_VOXELS * VOXEL_SIZE as i32); 
+
     commands.spawn((
         Camera3d::default(),
         Msaa::Off,
@@ -722,9 +750,12 @@ fn setup(
     commands.insert_resource(MaxHeight(8.));
 }
 
-//Takes the x and z voxel coordinates of a quad and returns the index within the terrain buffer
+
+///Takes the x and z voxel coordinates of a quad and returns the index within the terrain buffer
 fn get_index(x: i32, z: i32) -> usize {
-    positive_mod(z, BUFFER_SIZE) * BUFFER_SIZE as usize + positive_mod(x, BUFFER_SIZE)
+    let xi = x as usize & BUFFER_MASK;
+    let zi = z as usize & BUFFER_MASK;
+    (zi << BUFFER_SHIFT) | xi
 }
 
 fn grab_mouse(
@@ -867,12 +898,12 @@ fn get_height(x: i32, z: i32, noise: &NoiseStore) -> f32 {
             (z as f64 + FRAC_PI_4 as f64) / 200.,
         ]) as f32;
 
-    let _ = 100.
+    let o4 = 100.
         * noise.basic_perlin.get([
             (x as f64 + FRAC_PI_4 as f64) / 1000.,
             (z as f64 + FRAC_PI_4 as f64) / 1000.,
         ]) as f32;
-
+    /* 
     let o_a = match (x+5) % 7 {
         0 => 15,
         _ => 0
@@ -882,8 +913,8 @@ fn get_height(x: i32, z: i32, noise: &NoiseStore) -> f32 {
         0 => 15,
         _ => 0
     } as f32;
-
-    o1 + o2 + o3 + o_a + o_b
+    */
+    o1 + o2 + o3 +o4 //+ o_a + o_b
 }
 
 ///marker component for fps text

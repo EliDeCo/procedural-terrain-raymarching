@@ -1,7 +1,7 @@
 const EPS: f32 = 0.01;
 const SKY: vec3f = vec3f(0.53, 0.81, 0.92);
-//const LIGHT_DIR: vec3f = (vec3f(0.6533, -0.3827, -0.6533));
-const LIGHT_DIR: vec3f = (vec3f(0.5, -0.70710678, -0.5));
+const LIGHT_DIR: vec3f = (vec3f(0.6533, -0.3827, -0.6533));
+//const LIGHT_DIR: vec3f = (vec3f(0.5, -0.70710678, -0.5));
 const LIGHT_DIR_INV: vec3f = -LIGHT_DIR;
 const LIGHT_ANGULAR_SIZE: f32 = 0.05; // angular size of the sun/moon in radians
 const AMBIENT = 0.05;
@@ -10,7 +10,8 @@ const AMBIENT = 0.05;
 struct Uniform {
     world_from_clip: mat4x4f,
     resolution: vec2f,
-    _pad: vec2i, // fills the gap
+    buffer_mask: u32,
+    buffer_shift: u32,
     render_distance: f32,
     voxel_size: f32,
     inv_voxel_size: f32,
@@ -259,7 +260,9 @@ fn positive_mod(a: i32, b: i32) -> u32 {
 
 //Takes the x and z voxel coordinates of a quad and returns the index within the terrain buffer
 fn get_index(x: i32, z: i32) -> u32 {
-    return positive_mod(z, i32(unif.buffer_size)) * unif.buffer_size + positive_mod(x, i32(unif.buffer_size));
+    let xi = u32(x) & unif.buffer_mask;
+    let zi = u32(z) & unif.buffer_mask;
+    return (zi << unif.buffer_shift) | xi;
 }
 
 //                                                      upper => true, lower => false
