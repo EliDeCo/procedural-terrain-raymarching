@@ -10,7 +10,7 @@ const AMBIENT = 0.05;
 struct Uniform {
     world_from_clip: mat4x4f,
     resolution: vec2f,
-    buffer_mask: u32,
+    buffer_mask: i32,
     buffer_shift: u32,
     render_distance: f32,
     voxel_size: f32,
@@ -73,11 +73,15 @@ struct HitInfo {
 @group(0) @binding(0) 
 var<uniform> unif: Uniform;
 
+@group(0) @binding(1)
+var<storage> quads: array<GpuQuadInfo>;
+
+@group(0) @binding(2)
+var mipmap: texture_2d<f32>;
+
 @group(1) @binding(0)
 var<uniform> materials: array<GpuMaterial, 1>;
 
-@group(0) @binding(1)
-var<storage> quads: array<GpuQuadInfo>;
 
 @fragment
 fn frag_main(@builtin(position) frag_coords: vec4f) -> @location(0) vec4f {
@@ -113,9 +117,18 @@ fn frag_main(@builtin(position) frag_coords: vec4f) -> @location(0) vec4f {
     let shadow =  traverse_shadow(hit.pos + 0.01 * LIGHT_DIR_INV,LIGHT_DIR_INV);
     let final_color = materials[hit.material_id].base_color * (AMBIENT + diffuse * shadow);
 
-    return vec4f(final_color,1);
+    let value = sample_mipmap(to_voxel(hit.pos), 0) / 100;
+
+    return vec4f(vec3f(value),1);
 }
 
+//not properly functional
+fn sample_mipmap(coords: vec2i, level: u32) -> f32 {
+    let shifted = vec2i(coords.x >> level,coords.y >> level);
+    let x = coords.x & (unif.buffer_mask >> level);
+    let z = coords.y & (unif.buffer_mask >> level);
+    return textureLoad(mipmap, vec2i(x, z), level).r;
+}
 
 fn traverse(origin: vec3f, dir: vec3f) -> HitInfo {
     let ray_dir_xz = dir.xz;
@@ -260,11 +273,10 @@ fn positive_mod(a: i32, b: i32) -> u32 {
 
 //Takes the x and z voxel coordinates of a quad and returns the index within the terrain buffer
 fn get_index(x: i32, z: i32) -> u32 {
-    let xi = u32(x) & unif.buffer_mask;
-    let zi = u32(z) & unif.buffer_mask;
+    let xi = u32(x & unif.buffer_mask);
+    let zi = u32(z & unif.buffer_mask);
     return (zi << unif.buffer_shift) | xi;
 }
-
 //                                                      upper => true, lower => false
 fn ray_plane(origin: vec3f, dir: vec3f, plane: GpuSimplePlane, is_upper: bool, current_quad: GpuQuadInfo) -> HitInfo {
     let plane_n = plane.n_and_d.xyz;

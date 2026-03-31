@@ -1,6 +1,5 @@
-use bevy::anti_alias::fxaa::*;
 use bevy::{
-    anti_alias::fxaa::Fxaa,
+    anti_alias::fxaa::*,
     core_pipeline::{
         FullscreenShader,
         core_3d::graph::{Core3d, Node3d},
@@ -17,10 +16,13 @@ use bevy::{
         },
         render_resource::{
             BindGroup, BindGroupEntries, BindGroupLayoutDescriptor, BindGroupLayoutEntries,
-            BlendState, Buffer, BufferInitDescriptor, BufferUsages, CachedRenderPipelineId,
-            ColorTargetState, ColorWrites, FragmentState, PipelineCache, RenderPassDescriptor,
-            RenderPipelineDescriptor, ShaderStages, ShaderType, TextureFormat, UniformBuffer,
-            binding_types::{storage_buffer_read_only, uniform_buffer},
+            BindingResource, BlendState, Buffer, BufferInitDescriptor, BufferUsages,
+            CachedRenderPipelineId, ColorTargetState, ColorWrites, Extent3d, FragmentState,
+            Origin3d, PipelineCache, RenderPassDescriptor, RenderPipelineDescriptor, ShaderStages,
+            ShaderType, TexelCopyBufferLayout, TexelCopyTextureInfo, Texture, TextureAspect,
+            TextureDescriptor, TextureDimension, TextureFormat, TextureSampleType, TextureUsages,
+            TextureView, TextureViewDescriptor, UniformBuffer,
+            binding_types::{storage_buffer_read_only, texture_2d, uniform_buffer},
         },
         renderer::{RenderContext, RenderDevice, RenderQueue},
         view::ViewTarget,
@@ -46,26 +48,24 @@ const SHADER_ASSET_PATH: &str = "shaders/my_shader.wgsl";
 //PRECALCULATIONS
 const TOTAL_SPAN: f32 = RENDER_DISTANCE * 2.;
 const DESIRED_CHUNKS_PER_EDGE: u32 = (TOTAL_SPAN / DESIRED_VOXEL_SIZE as f32) as u32;
-const BUFFER_SIZE: i32 = nearest_power_of_two(DESIRED_CHUNKS_PER_EDGE) as i32;
-const RENDER_DIST_VOXELS: i32 = BUFFER_SIZE >> 1;
-const VOXEL_SIZE: f32 = ((TOTAL_SPAN / BUFFER_SIZE as f32) as u32) as f32; //must be whole number, but type f32 to avoid casting u32 -> f32 frequently
-const INV_VOXEL_SIZE: f32 = 1.0 / VOXEL_SIZE;
-const BUFFER_MASK:  usize = (BUFFER_SIZE - 1) as usize;
+const BUFFER_SIZE: u32 = nearest_power_of_two(DESIRED_CHUNKS_PER_EDGE);
+const RENDER_DIST_VOXELS: u32 = BUFFER_SIZE >> 1;
+const VOXEL_SIZE: u32 = (TOTAL_SPAN / BUFFER_SIZE as f32) as u32; //must be a whole number
+const INV_VOXEL_SIZE: f32 = 1.0 / (VOXEL_SIZE as f32);
+const BUFFER_MASK: i32 = (BUFFER_SIZE - 1) as i32;
 const BUFFER_SHIFT: usize = BUFFER_SIZE.trailing_zeros() as usize;
-
+const ACUTAL_RENDER_DISTANCE: u32 = RENDER_DIST_VOXELS * VOXEL_SIZE;
 
 const fn nearest_power_of_two(x: u32) -> u32 {
-    if x.is_power_of_two() { return x; }
+    if x.is_power_of_two() {
+        return x;
+    }
 
     let next = x.next_power_of_two();
     let prev = next >> 1;
 
     // Compare which is closer
-    if x - prev <= next - x {
-        prev
-    } else {
-        next
-    }
+    if x - prev <= next - x { prev } else { next }
 }
 
 fn main() {
@@ -87,6 +87,7 @@ fn main() {
         .add_plugins(ShaderPlugin)
         //.insert_resource(ClearColor(Color::srgb(0.53, 0.81, 0.92)))
         .init_resource::<TerrainStore>()
+        .init_resource::<MipmapStore>()
         .add_systems(Startup, (setup /*init_terrain.after(setup)*/,))
         .add_systems(
             Update,
@@ -95,6 +96,7 @@ fn main() {
                 update_cam,
                 player_move,
                 update_fps_text,
+                generate_mipmap,
                 //update_terrain,
             ),
         )
@@ -189,6 +191,23 @@ fn init_custom_pipeline(
         usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
     });
 
+    let mip_levels = BUFFER_SIZE.trailing_zeros() + 1;
+    let mipmap_texture = render_device.create_texture(&TextureDescriptor {
+        label: Some("mipmap_texture"),
+        size: Extent3d {
+            width: BUFFER_SIZE,
+            height: BUFFER_SIZE,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: mip_levels,
+        sample_count: 1,
+        dimension: TextureDimension::D2,
+        format: TextureFormat::R32Float,
+        usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    let mipmap_view = mipmap_texture.create_view(&TextureViewDescriptor::default());
+
     let layout = BindGroupLayoutDescriptor::new(
         "per_frame_layout",
         &BindGroupLayoutEntries::sequential(
@@ -196,6 +215,7 @@ fn init_custom_pipeline(
             (
                 uniform_buffer::<Uniform>(false),
                 storage_buffer_read_only::<GpuQuadInfo>(false),
+                texture_2d(TextureSampleType::Float { filterable: false }),
             ),
         ),
     );
@@ -227,6 +247,8 @@ fn init_custom_pipeline(
         layout,
         static_bind_group,
         quad_buffer,
+        mipmap_texture,
+        mipmap_view,
     });
 }
 
@@ -236,6 +258,8 @@ struct MyPipeline {
     layout: BindGroupLayoutDescriptor,
     static_bind_group: BindGroup,
     quad_buffer: Buffer,
+    mipmap_texture: Texture,
+    mipmap_view: TextureView,
 }
 
 #[derive(Default)]
@@ -247,6 +271,7 @@ fn extract_data(
     camera: Extract<Single<(&Camera, &GlobalTransform)>>,
     pending: Extract<Option<Res<PendingTerrainChanges>>>,
     max_height: Extract<Res<MaxHeight>>,
+    mipmap_store: Extract<Res<MipmapStore>>,
 ) {
     let (camera, transform) = (camera.0, camera.1);
     let clip_matrix = camera.clip_from_view();
@@ -259,10 +284,10 @@ fn extract_data(
             window.physical_height() as f32,
         ),
         world_from_clip,
-        buffer_mask: BUFFER_MASK as u32,
+        buffer_mask: BUFFER_MASK,
         buffer_shift: BUFFER_SHIFT as u32,
-        render_distance: RENDER_DISTANCE,
-        voxel_size: VOXEL_SIZE,
+        render_distance: ACUTAL_RENDER_DISTANCE as f32,
+        voxel_size: VOXEL_SIZE as f32,
         inv_voxel_size: INV_VOXEL_SIZE,
         buffer_size: BUFFER_SIZE as u32,
         max_height: max_height.0,
@@ -278,6 +303,10 @@ fn extract_data(
             changes: Vec::new(),
         });
     }
+
+    commands.insert_resource(ExtractedMipmap {
+        data: mipmap_store.mipmaps.clone(),
+    });
 }
 
 ///Updates group of information sent to the render world
@@ -302,6 +331,34 @@ fn prepare_bind_group(
     };
 
     let staged_changes = world.get_resource::<PendingTerrainChanges>();
+
+    if let Some(extracted_mipmap) = world.get_resource::<ExtractedMipmap>() {
+        let mut level_size = BUFFER_SIZE;
+        for (level, data) in extracted_mipmap.data.iter().enumerate() {
+            render_queue.write_texture(
+                TexelCopyTextureInfo {
+                    aspect: TextureAspect::All,
+                    mip_level: level as u32,
+                    origin: Origin3d::ZERO,
+                    texture: &pipeline.mipmap_texture,
+                },
+                cast_slice(data),
+                TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(level_size * 4),
+                    rows_per_image: None,
+                },
+                Extent3d {
+                    width: level_size,
+                    height: level_size,
+                    depth_or_array_layers: 1,
+                },
+            );
+            level_size >>= 1;
+        }
+    } else {
+        return;
+    }
 
     let layout = pipeline_cache.get_bind_group_layout(&pipeline.layout);
 
@@ -343,6 +400,7 @@ fn prepare_bind_group(
         &BindGroupEntries::sequential((
             u_buffer.binding().unwrap(),
             pipeline.quad_buffer.as_entire_binding(),
+            BindingResource::TextureView(&pipeline.mipmap_view),
         )),
     );
 
@@ -408,7 +466,7 @@ struct MyPassLabel;
 struct Uniform {
     world_from_clip: Mat4,
     resolution: Vec2,
-    buffer_mask: u32,
+    buffer_mask: i32,
     buffer_shift: u32,
     render_distance: f32,
     voxel_size: f32,
@@ -420,6 +478,11 @@ struct Uniform {
 #[derive(Resource)]
 struct PendingTerrainChanges {
     changes: Vec<(usize, GpuQuadInfo)>,
+}
+
+#[derive(Resource)]
+struct ExtractedMipmap {
+    data: Vec<Vec<f32>>,
 }
 
 #[derive(Component, Default, Clone, Copy, ExtractComponent, ShaderType)]
@@ -546,12 +609,16 @@ impl GpuQuadInfo {
         let p1 = Vec3::new(x_max as f32, y1, z_min as f32);
         let p2 = Vec3::new(x_min as f32, y2, z_max as f32);
         let p3 = Vec3::new(x_max as f32, y3, z_max as f32);
-        let p4 = Vec3::new(x_min as f32 - VOXEL_SIZE, y4, z_max as f32);
-        let p5 = Vec3::new(x_min as f32 - VOXEL_SIZE, y5, z_min as f32);
-        let p7 = Vec3::new(x_min as f32, y7, z_min as f32 - VOXEL_SIZE);
-        let p8 = Vec3::new(x_max as f32, y8, z_min as f32 - VOXEL_SIZE);
-        let p9 = Vec3::new(x_max as f32 + VOXEL_SIZE, y9, z_min as f32 - VOXEL_SIZE);
-        let p10 = Vec3::new(x_max as f32 + VOXEL_SIZE, y10, z_min as f32);
+        let p4 = Vec3::new(x_min as f32 - VOXEL_SIZE as f32, y4, z_max as f32);
+        let p5 = Vec3::new(x_min as f32 - VOXEL_SIZE as f32, y5, z_min as f32);
+        let p7 = Vec3::new(x_min as f32, y7, z_min as f32 - VOXEL_SIZE as f32);
+        let p8 = Vec3::new(x_max as f32, y8, z_min as f32 - VOXEL_SIZE as f32);
+        let p9 = Vec3::new(
+            x_max as f32 + VOXEL_SIZE as f32,
+            y9,
+            z_min as f32 - VOXEL_SIZE as f32,
+        );
+        let p10 = Vec3::new(x_max as f32 + VOXEL_SIZE as f32, y10, z_min as f32);
         //let p11 = Vec3::new(x_max as f32 + VOXEL_SIZE,   y11, z_max as f32);
 
         //current voxel normals
@@ -674,7 +741,7 @@ impl GpuQuadInfo {
             n1: [n1.x, n1.y, n1.z, 0.],
             n2: [n2.x, n2.y, n2.z, 0.],
             pos_1: [x_min as f32, y0, z_min as f32, 0.],
-            pos_2: [x_max as f32, y1, z_min as f32, 0.]
+            pos_2: [x_max as f32, y1, z_min as f32, 0.],
         }
     }
 }
@@ -698,8 +765,11 @@ fn setup(
     */
 
     println!("Actual voxel size: {}", VOXEL_SIZE);
-    println!("Buffer size: {}", BUFFER_SIZE);
-    println!("Actual render distance: {}", RENDER_DIST_VOXELS * VOXEL_SIZE as i32); 
+    println!("Buffer edge length {}", BUFFER_SIZE);
+    println!(
+        "Actual render distance: {}",
+        RENDER_DIST_VOXELS * VOXEL_SIZE
+    );
 
     commands.spawn((
         Camera3d::default(),
@@ -750,11 +820,10 @@ fn setup(
     commands.insert_resource(MaxHeight(8.));
 }
 
-
 ///Takes the x and z voxel coordinates of a quad and returns the index within the terrain buffer
 fn get_index(x: i32, z: i32) -> usize {
-    let xi = x as usize & BUFFER_MASK;
-    let zi = z as usize & BUFFER_MASK;
+    let xi = (x & BUFFER_MASK) as usize;
+    let zi = (z & BUFFER_MASK) as usize;
     (zi << BUFFER_SHIFT) | xi
 }
 
@@ -877,10 +946,6 @@ fn update_fps_text(
     }
 }
 
-fn positive_mod(a: i32, b: i32) -> usize {
-    (((a % b) + b) % b) as usize
-}
-
 fn get_height(x: i32, z: i32, noise: &NoiseStore) -> f32 {
     let o1 = noise
         .basic_perlin
@@ -903,7 +968,7 @@ fn get_height(x: i32, z: i32, noise: &NoiseStore) -> f32 {
             (x as f64 + FRAC_PI_4 as f64) / 1000.,
             (z as f64 + FRAC_PI_4 as f64) / 1000.,
         ]) as f32;
-    /* 
+    /*
     let o_a = match (x+5) % 7 {
         0 => 15,
         _ => 0
@@ -914,7 +979,7 @@ fn get_height(x: i32, z: i32, noise: &NoiseStore) -> f32 {
         _ => 0
     } as f32;
     */
-    o1 + o2 + o3 +o4 //+ o_a + o_b
+    o1 + o2 + o3 + o4 //+ o_a + o_b
 }
 
 ///marker component for fps text
@@ -1030,11 +1095,12 @@ fn stage_terrain_updates(
     //if just started, generate all voxels in parallel
     if need_init {
         let noise = noise.into_inner().to_owned();
-        let new_quads: Vec<(usize, GpuQuadInfo)> = ((player_voxel.y - RENDER_DIST_VOXELS)
-            ..(player_voxel.y + RENDER_DIST_VOXELS))
+        let new_quads: Vec<(usize, GpuQuadInfo)> = ((player_voxel.y - RENDER_DIST_VOXELS as i32)
+            ..(player_voxel.y + RENDER_DIST_VOXELS as i32))
             .into_par_iter()
             .flat_map(|z| {
-                ((player_voxel.x - RENDER_DIST_VOXELS)..(player_voxel.x + RENDER_DIST_VOXELS))
+                ((player_voxel.x - RENDER_DIST_VOXELS as i32)
+                    ..(player_voxel.x + RENDER_DIST_VOXELS as i32))
                     .map(move |x| {
                         (
                             get_index(x, z),
@@ -1079,40 +1145,44 @@ fn stage_terrain_updates(
     let voxels_per_frame = ((MOVE_SPEED * time.delta_secs()) * INV_VOXEL_SIZE).ceil() as i32;
 
     // Top strip (outer edge)
-    for z in (player_voxel.y + RENDER_DIST_VOXELS - voxels_per_frame)
-        ..(player_voxel.y + RENDER_DIST_VOXELS)
+    for z in (player_voxel.y + RENDER_DIST_VOXELS as i32 - voxels_per_frame)
+        ..(player_voxel.y + RENDER_DIST_VOXELS as i32)
     {
-        for x in (player_voxel.x - RENDER_DIST_VOXELS)..(player_voxel.x + RENDER_DIST_VOXELS) {
+        for x in (player_voxel.x - RENDER_DIST_VOXELS as i32)
+            ..(player_voxel.x + RENDER_DIST_VOXELS as i32)
+        {
             update_voxel(x, z);
         }
     }
 
     // Bottom strip (outer edge)
-    for z in (player_voxel.y - RENDER_DIST_VOXELS)
-        ..(player_voxel.y - RENDER_DIST_VOXELS + voxels_per_frame)
+    for z in (player_voxel.y - RENDER_DIST_VOXELS as i32)
+        ..(player_voxel.y - RENDER_DIST_VOXELS as i32 + voxels_per_frame)
     {
-        for x in (player_voxel.x - RENDER_DIST_VOXELS)..(player_voxel.x + RENDER_DIST_VOXELS) {
+        for x in (player_voxel.x - RENDER_DIST_VOXELS as i32)
+            ..(player_voxel.x + RENDER_DIST_VOXELS as i32)
+        {
             update_voxel(x, z);
         }
     }
 
     // Left strip (exclude corners already covered by top/bottom)
-    for z in (player_voxel.y - RENDER_DIST_VOXELS + voxels_per_frame)
-        ..(player_voxel.y + RENDER_DIST_VOXELS - voxels_per_frame)
+    for z in (player_voxel.y - RENDER_DIST_VOXELS as i32 + voxels_per_frame)
+        ..(player_voxel.y + RENDER_DIST_VOXELS as i32 - voxels_per_frame)
     {
-        for x in (player_voxel.x - RENDER_DIST_VOXELS)
-            ..(player_voxel.x - RENDER_DIST_VOXELS + voxels_per_frame)
+        for x in (player_voxel.x - RENDER_DIST_VOXELS as i32)
+            ..(player_voxel.x - RENDER_DIST_VOXELS as i32 + voxels_per_frame)
         {
             update_voxel(x, z);
         }
     }
 
     // Right strip (exclude corners already covered by top/bottom)
-    for z in (player_voxel.y - RENDER_DIST_VOXELS + voxels_per_frame)
-        ..(player_voxel.y + RENDER_DIST_VOXELS - voxels_per_frame)
+    for z in (player_voxel.y - RENDER_DIST_VOXELS as i32 + voxels_per_frame)
+        ..(player_voxel.y + RENDER_DIST_VOXELS as i32 - voxels_per_frame)
     {
-        for x in (player_voxel.x + RENDER_DIST_VOXELS - voxels_per_frame)
-            ..(player_voxel.x + RENDER_DIST_VOXELS)
+        for x in (player_voxel.x + RENDER_DIST_VOXELS as i32 - voxels_per_frame)
+            ..(player_voxel.x + RENDER_DIST_VOXELS as i32)
         {
             update_voxel(x, z);
         }
@@ -1148,10 +1218,69 @@ struct NoiseStore {
     basic_perlin: Perlin,
 }
 
+#[derive(Resource)]
+struct MipmapStore {
+    mipmaps: Vec<Vec<f32>>,
+}
+
+impl Default for MipmapStore {
+    fn default() -> Self {
+        Self {
+            mipmaps: Vec::new(),
+        }
+    }
+}
+
 fn angle_at(center: Vec3, a: Vec3, b: Vec3) -> f32 {
     let e1 = (a - center).normalize();
     let e2 = (b - center).normalize();
     let dot = e1.dot(e2);
     let cross = e1.cross(e2).length();
     cross.atan2(dot)
+}
+
+fn generate_mipmap(
+    terrain_store: Option<Res<TerrainStore>>,
+    mut mipmap_store: ResMut<MipmapStore>,
+) {
+    if let Some(terrain_store) = terrain_store {
+        let num_levels = BUFFER_SIZE.trailing_zeros() as usize + 1;
+        let mut mipmaps: Vec<Vec<f32>> = Vec::with_capacity(num_levels);
+        let mut level_size = (BUFFER_SIZE * BUFFER_SIZE) as usize;
+        let mut edge_length = BUFFER_SIZE as usize;
+
+        let current_level: Vec<f32> = terrain_store
+            .quad_buffer
+            .iter()
+            .map(|quad| quad.y_max)
+            .collect();
+        mipmaps.push(current_level);
+
+        for level in 0..(num_levels - 1) {
+            let prev_level = &mipmaps[level];
+            level_size >>= 2; //divide total area by 4 for each level
+            let prev_edge_length = edge_length; //store previous edge length before updating
+            edge_length >>= 1; //divide edge length by 2 for each level
+
+            let mut new_level = Vec::with_capacity(level_size);
+
+            // For each 2x2 block in the previous level, take the max of the 4 corresponding quads
+            for z in 0..edge_length {
+                for x in 0..edge_length {
+                    let z2 = z << 1;
+                    let x2 = x << 1;
+                    let y0 = prev_level[(z2 * (prev_edge_length)) + x2];
+                    let y1 = prev_level[(z2 * (prev_edge_length)) + (x2 + 1)];
+                    let y2 = prev_level[((z2 + 1) * (prev_edge_length)) + x2];
+                    let y3 = prev_level[((z2 + 1) * (prev_edge_length)) + (x2 + 1)];
+                    let max_y = y0.max(y1).max(y2).max(y3);
+                    new_level.push(max_y);
+                }
+            }
+            mipmaps.push(new_level);
+        }
+
+        mipmap_store.mipmaps = mipmaps;
+        //println!("Generated {} mipmap levels", mipmap_store.mipmaps.len());
+    }
 }

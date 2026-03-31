@@ -1,8 +1,8 @@
 To-Do
 X Get basic raymarching functionality (flat lambertian diffuse shading)
 X Smooth normals
-3. Hard Shadows
-4. Soft Shadows
+X. Hard Shadows
+X. Soft Shadows
 5. Ambient Occlusion
 6. Fog
 7. Sky Modeling
