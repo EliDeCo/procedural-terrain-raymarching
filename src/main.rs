@@ -362,6 +362,8 @@ fn prepare_bind_group(
 
     let layout = pipeline_cache.get_bind_group_layout(&pipeline.layout);
 
+    //println!("{:#?}", uniform.mip_origin);
+
     let mut u_buffer = UniformBuffer::default();
     u_buffer.set(*uniform);
     u_buffer.write_buffer(&render_device, &render_queue);
@@ -1282,5 +1284,12 @@ fn generate_mipmap(
 
         mipmap_store.mipmaps = mipmaps;
         //println!("Generated {} mipmap levels", mipmap_store.mipmaps.len());
+        /* 
+        println!(
+            "Top level has {} quads, next level has {} quads",
+            mipmap_store.mipmaps[0].len(),
+            mipmap_store.mipmaps[1].len()
+        );
+        */
     }
 }

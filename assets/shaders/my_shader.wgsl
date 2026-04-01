@@ -29,10 +29,10 @@ struct GpuQuadInfo {
     y_max: f32,
     y_min: f32,
     _pad: vec2i,
-    n1: vec4f,
-    pos_1: vec4f,
-    n2: vec4f,
-    pos_2: vec4f,
+    n1: vec4f, //vertex normal of the vertex at world_coords (x_min, z_min). 4th value is unused
+    pos_1: vec4f, //The 3d position of the vertex at world_coords (x_min, z_min). 4th value is unused
+    n2: vec4f, //vertex normal of the vertex at world_coords (x_max, z_min). 4th value is unused
+    pos_2: vec4f, //The 3d position of the vertex at world_coords (x_max, z_min). 4th value is unused
 }
 
 //information about a single plane
@@ -68,6 +68,7 @@ struct HitInfo {
     pos: vec3f, //hit position
     material_id: i32, //id of the hit material
     normal: vec3f, //surface normal at hit position
+    voxel: vec2i, //voxel coordinates of the hit quad
 }
 
 @group(0) @binding(0) 
@@ -112,22 +113,21 @@ fn frag_main(@builtin(position) frag_coords: vec4f) -> @location(0) vec4f {
         return vec4f(SKY,1);
     }
 
-    //let diffuse = shade(materials[hit.material_id].base_color,hit.normal);
+
     let diffuse = max(0,dot(hit.normal,LIGHT_DIR_INV));
     let shadow =  traverse_shadow(hit.pos + 0.01 * LIGHT_DIR_INV,LIGHT_DIR_INV);
     let final_color = materials[hit.material_id].base_color * (AMBIENT + diffuse * shadow);
 
-    let value = sample_mipmap(to_voxel(hit.pos), 0) / 100;
+    return vec4f(final_color,1);
+    //let value = sample_mipmap(hit.voxel, 0);
 
-    return vec4f(vec3f(value),1);
+    //return vec4f(vec3f((value+121)/242),1);
 }
 
-//not properly functional
-fn sample_mipmap(coords: vec2i, level: u32) -> f32 {
-    let shifted = vec2i(coords.x >> level,coords.y >> level);
-    let x = coords.x & (unif.buffer_mask >> level);
-    let z = coords.y & (unif.buffer_mask >> level);
-    return textureLoad(mipmap, vec2i(x, z), level).r;
+//voxel is the voxel coordinates of the location we want to sample
+fn sample_mipmap(voxel_coord: vec2i, level: u32) -> f32 {
+    let texel = (voxel_coord & vec2i(unif.buffer_mask)) >> vec2u(level);
+    return textureLoad(mipmap, texel, level).x;
 }
 
 fn traverse(origin: vec3f, dir: vec3f) -> HitInfo {
@@ -264,6 +264,7 @@ fn no_hit() -> HitInfo {
         vec3f(0,0,0),
         -1,
         vec3f(0,0,0),
+        vec2i(0,0)
     );
 }
 
@@ -315,6 +316,7 @@ fn ray_plane(origin: vec3f, dir: vec3f, plane: GpuSimplePlane, is_upper: bool, c
         point,
         plane.material_id.x,
         smooth_normal,
+        current_quad.voxel_coords
     );
 }
 
