@@ -35,7 +35,7 @@ use rayon::prelude::*;
 
 //INPUTS
 const DESIRED_VOXEL_SIZE: u32 = 15;
-const RENDER_DISTANCE: f32 = 1000.;
+const RENDER_DISTANCE: f32 = 100.;
 const WINDOW_WIDTH: u32 = 960;
 const WINDOW_HEIGHT: u32 = 540;
 const MOVE_SPEED: f32 = 10.0;
@@ -50,11 +50,11 @@ const TOTAL_SPAN: f32 = RENDER_DISTANCE * 2.;
 const DESIRED_CHUNKS_PER_EDGE: u32 = (TOTAL_SPAN / DESIRED_VOXEL_SIZE as f32).round() as u32;
 const BUFFER_SIZE: u32 = nearest_power_of_two(DESIRED_CHUNKS_PER_EDGE);
 const RENDER_DIST_VOXELS: u32 = BUFFER_SIZE >> 1;
-const VOXEL_SIZE: u32 = (TOTAL_SPAN / BUFFER_SIZE as f32).round() as u32; //must be a whole number
-const INV_VOXEL_SIZE: f32 = 1.0 / (VOXEL_SIZE as f32);
+const VOXEL_SIZE: f32 = TOTAL_SPAN / BUFFER_SIZE as f32;
+const INV_VOXEL_SIZE: f32 = 1.0 / VOXEL_SIZE;
 const BUFFER_MASK: i32 = (BUFFER_SIZE - 1) as i32;
 const BUFFER_SHIFT: usize = BUFFER_SIZE.trailing_zeros() as usize;
-const ACUTAL_RENDER_DISTANCE: u32 = RENDER_DIST_VOXELS * VOXEL_SIZE;
+const ACUTAL_RENDER_DISTANCE: f32 = RENDER_DIST_VOXELS as f32 * VOXEL_SIZE;
 
 const fn nearest_power_of_two(x: u32) -> u32 {
     if x.is_power_of_two() {
@@ -286,8 +286,8 @@ fn extract_data(
         world_from_clip,
         buffer_mask: BUFFER_MASK,
         buffer_shift: BUFFER_SHIFT as u32,
-        render_distance: ACUTAL_RENDER_DISTANCE as f32,
-        voxel_size: VOXEL_SIZE as f32,
+        render_distance: ACUTAL_RENDER_DISTANCE,
+        voxel_size: VOXEL_SIZE,
         inv_voxel_size: INV_VOXEL_SIZE,
         buffer_size: BUFFER_SIZE as u32,
         max_height: max_height.0,
@@ -568,26 +568,26 @@ struct GpuSimplePlane {
 }
 
 impl GpuQuadInfo {
-    ///Creates a new quad at the gixen voxel coordinates
+    ///Creates a new quad at the given voxel coordinates
     fn new_simple(coords: IVec2, noise: &NoiseStore) -> Self {
-        let coords = VOXEL_SIZE as i32 * coords;
+        let coords = VOXEL_SIZE * coords.as_vec2();
         let v0 = coords.to_array();
-        let v1 = (coords + IVec2::new(VOXEL_SIZE as i32, 0)).to_array();
-        let v2 = (coords + IVec2::new(0, VOXEL_SIZE as i32)).to_array();
-        let v3 = (coords + IVec2::new(VOXEL_SIZE as i32, VOXEL_SIZE as i32)).to_array();
+        let v1 = (coords + Vec2::new(VOXEL_SIZE, 0.)).to_array();
+        let v2 = (coords + Vec2::new(0., VOXEL_SIZE)).to_array();
+        let v3 = (coords + Vec2::new(VOXEL_SIZE, VOXEL_SIZE)).to_array();
 
         return GpuQuadInfo::new([v0, v1, v2, v3], noise);
     }
 
     ///Creates a new quad from 4 vertexes (given as [[x,z]; 4])
-    fn new(vertexes: [[i32; 2]; 4], noise: &NoiseStore) -> Self {
+    fn new(vertexes: [[f32; 2]; 4], noise: &NoiseStore) -> Self {
         // Find min and max X/Z
-        let x_min = vertexes.iter().map(|v| v[0]).min().unwrap();
-        let z_min = vertexes.iter().map(|v| v[1]).min().unwrap();
-        let x_max = vertexes.iter().map(|v| v[0]).max().unwrap();
-        let z_max = vertexes.iter().map(|v| v[1]).max().unwrap();
+        let x_min = vertexes.iter().map(|v| v[0]).reduce(|a,b|a.min(b)).unwrap();
+        let z_min = vertexes.iter().map(|v| v[1]).reduce(|a,b|a.min(b)).unwrap();
+        let x_max = vertexes.iter().map(|v| v[0]).reduce(|a,b|a.max(b)).unwrap();
+        let z_max = vertexes.iter().map(|v| v[1]).reduce(|a,b|a.max(b)).unwrap();
 
-        let world_coords = Vec2::new(x_min as f32, z_min as f32);
+        let world_coords = Vec2::new(x_min, z_min);
         let voxel_coords = coord(Vec3::new(world_coords.x, 0.0, world_coords.y));
 
         // Heights at the 4 corners
@@ -597,30 +597,30 @@ impl GpuQuadInfo {
         let y3 = get_height(x_max, z_max, noise);
 
         //Extra heights for normal calculations
-        let y4 = get_height(x_min - VOXEL_SIZE as i32, z_max, noise);
-        let y5 = get_height(x_min - VOXEL_SIZE as i32, z_min, noise);
-        //let y6 = get_height(x_min - VOXEL_SIZE as i32, z_min - VOXEL_SIZE as i32, noise);
-        let y7 = get_height(x_min, z_min - VOXEL_SIZE as i32, noise);
-        let y8 = get_height(x_max, z_min - VOXEL_SIZE as i32, noise);
-        let y9 = get_height(x_max + VOXEL_SIZE as i32, z_min - VOXEL_SIZE as i32, noise);
-        let y10 = get_height(x_max + VOXEL_SIZE as i32, z_min, noise);
-        //let y11 = get_height(x_max + VOXEL_SIZE as i32, z_max, noise);
+        let y4 = get_height(x_min - VOXEL_SIZE, z_max, noise);
+        let y5 = get_height(x_min - VOXEL_SIZE, z_min, noise);
+        //let y6 = get_height(x_min - VOXEL_SIZE, z_min - VOXEL_SIZE, noise);
+        let y7 = get_height(x_min, z_min - VOXEL_SIZE, noise);
+        let y8 = get_height(x_max, z_min - VOXEL_SIZE, noise);
+        let y9 = get_height(x_max + VOXEL_SIZE, z_min - VOXEL_SIZE, noise);
+        let y10 = get_height(x_max + VOXEL_SIZE, z_min, noise);
+        //let y11 = get_height(x_max + VOXEL_SIZE, z_max, noise);
 
         // 3D positions
-        let p0 = Vec3::new(x_min as f32, y0, z_min as f32);
-        let p1 = Vec3::new(x_max as f32, y1, z_min as f32);
-        let p2 = Vec3::new(x_min as f32, y2, z_max as f32);
-        let p3 = Vec3::new(x_max as f32, y3, z_max as f32);
-        let p4 = Vec3::new(x_min as f32 - VOXEL_SIZE as f32, y4, z_max as f32);
-        let p5 = Vec3::new(x_min as f32 - VOXEL_SIZE as f32, y5, z_min as f32);
-        let p7 = Vec3::new(x_min as f32, y7, z_min as f32 - VOXEL_SIZE as f32);
-        let p8 = Vec3::new(x_max as f32, y8, z_min as f32 - VOXEL_SIZE as f32);
+        let p0 = Vec3::new(x_min, y0, z_min);
+        let p1 = Vec3::new(x_max, y1, z_min);
+        let p2 = Vec3::new(x_min, y2, z_max);
+        let p3 = Vec3::new(x_max, y3, z_max);
+        let p4 = Vec3::new(x_min - VOXEL_SIZE, y4, z_max);
+        let p5 = Vec3::new(x_min - VOXEL_SIZE, y5, z_min);
+        let p7 = Vec3::new(x_min, y7, z_min - VOXEL_SIZE);
+        let p8 = Vec3::new(x_max, y8, z_min - VOXEL_SIZE);
         let p9 = Vec3::new(
-            x_max as f32 + VOXEL_SIZE as f32,
+            x_max + VOXEL_SIZE,
             y9,
-            z_min as f32 - VOXEL_SIZE as f32,
+            z_min - VOXEL_SIZE,
         );
-        let p10 = Vec3::new(x_max as f32 + VOXEL_SIZE as f32, y10, z_min as f32);
+        let p10 = Vec3::new(x_max + VOXEL_SIZE, y10, z_min);
         //let p11 = Vec3::new(x_max as f32 + VOXEL_SIZE,   y11, z_max as f32);
 
         //current voxel normals
@@ -713,7 +713,7 @@ impl GpuQuadInfo {
 
         // Construct lower plane (right angle at min_x, min_z)
         let lower = {
-            let world_point = Vec3::new(x_min as f32, y0, z_min as f32);
+            let world_point = Vec3::new(x_min , y0, z_min);
             let d = -n_lower.dot(world_point);
             GpuSimplePlane {
                 n_and_d: [n_lower.x, n_lower.y, n_lower.z, d],
@@ -723,7 +723,7 @@ impl GpuQuadInfo {
 
         // Construct upper plane (right angle at max_x, max_z)
         let upper = {
-            let world_point = Vec3::new(x_max as f32, y3, z_max as f32);
+            let world_point = Vec3::new(x_max, y3, z_max);
             let d = -n_upper.dot(world_point);
             GpuSimplePlane {
                 n_and_d: [n_upper.x, n_upper.y, n_upper.z, d],
@@ -742,8 +742,8 @@ impl GpuQuadInfo {
             //placeholders
             n1: [n1.x, n1.y, n1.z, 0.],
             n2: [n2.x, n2.y, n2.z, 0.],
-            pos_1: [x_min as f32, y0, z_min as f32, 0.],
-            pos_2: [x_max as f32, y1, z_min as f32, 0.],
+            pos_1: [x_min, y0, z_min, 0.],
+            pos_2: [x_max, y1, z_min, 0.],
         }
     }
 }
@@ -770,7 +770,7 @@ fn setup(
     println!("Buffer edge length {}", BUFFER_SIZE);
     println!(
         "Actual render distance: {}",
-        RENDER_DIST_VOXELS * VOXEL_SIZE
+        RENDER_DIST_VOXELS as f32 * VOXEL_SIZE
     );
 
     commands.spawn((
@@ -948,28 +948,22 @@ fn update_fps_text(
     }
 }
 
-fn get_height(x: i32, z: i32, noise: &NoiseStore) -> f32 {
+fn get_height(x: f32, z: f32, noise: &NoiseStore) -> f32 {
+
+    let pair = [x as f64, z as f64];
+
     let o1 = noise
         .basic_perlin
-        .get([x as f64 + FRAC_PI_4 as f64, z as f64 + FRAC_PI_4 as f64]) as f32;
+        .get(pair) as f32;
 
     let o2 = 5.
-        * noise.basic_perlin.get([
-            (x as f64 + FRAC_PI_4 as f64) / 70.,
-            (z as f64 + FRAC_PI_4 as f64) / 70.,
-        ]) as f32;
+        * noise.basic_perlin.get(pair.map(|n| n / 70.)) as f32;
 
     let o3 = 15.
-        * noise.basic_perlin.get([
-            (x as f64 + FRAC_PI_4 as f64) / 200.,
-            (z as f64 + FRAC_PI_4 as f64) / 200.,
-        ]) as f32;
+        * noise.basic_perlin.get(pair.map(|n| n / 200.)) as f32;
 
     let o4 = 100.
-        * noise.basic_perlin.get([
-            (x as f64 + FRAC_PI_4 as f64) / 1000.,
-            (z as f64 + FRAC_PI_4 as f64) / 1000.,
-        ]) as f32;
+        * noise.basic_perlin.get(pair.map(|n| n / 1000.)) as f32;
     /*
     let o_a = match (x+5) % 7 {
         0 => 15,
@@ -1041,32 +1035,6 @@ fn stage_terrain_updates(
     let Some(mut terrain_store) = terrain_store else {
         return;
     };
-    /*
-    //temporary "rendering"
-    for quad in &terrain_store.quad_buffer {
-        let coords = IVec2::new(quad.world_coords.x as i32, quad.world_coords.y as i32);
-        let v0 = coords;
-        let v1 = coords + IVec2::new(VOXEL_SIZE as i32, 0);
-        let v2 = coords + IVec2::new(0, VOXEL_SIZE as i32);
-        let v3 = coords + IVec2::new(VOXEL_SIZE as i32, VOXEL_SIZE as i32);
-
-        for edge in [(v0, v1), (v1, v2), (v2, v0), (v2, v3), (v3, v1)] {
-            let start = Vec3::new(
-                edge.0.x as f32,
-                get_height(edge.0.x, edge.0.y, &noise),
-                edge.0.y as f32,
-            );
-            let end = Vec3::new(
-                edge.1.x as f32,
-                get_height(edge.1.x, edge.1.y, &noise),
-                edge.1.y as f32,
-            );
-            gizmos.line(start, end, Color::WHITE);
-        }
-    }
-    */
-
-    //println!("Hello?");
 
     let need_init = !terrain_store.initialized;
 

@@ -268,10 +268,6 @@ fn no_hit() -> HitInfo {
     );
 }
 
-fn positive_mod(a: i32, b: i32) -> u32 {
-    return u32(((a % b) + b) % b);
-}
-
 //Takes the x and z voxel coordinates of a quad and returns the index within the terrain buffer
 fn get_index(x: i32, z: i32) -> u32 {
     let xi = u32(x & unif.buffer_mask);
