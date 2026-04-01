@@ -35,7 +35,7 @@ use rayon::prelude::*;
 
 //INPUTS
 const DESIRED_VOXEL_SIZE: u32 = 15;
-const RENDER_DISTANCE: f32 = 5000.;
+const RENDER_DISTANCE: f32 = 1000.;
 const WINDOW_WIDTH: u32 = 960;
 const WINDOW_HEIGHT: u32 = 540;
 const MOVE_SPEED: f32 = 10.0;
@@ -47,10 +47,10 @@ const SHADER_ASSET_PATH: &str = "shaders/my_shader.wgsl";
 
 //PRECALCULATIONS
 const TOTAL_SPAN: f32 = RENDER_DISTANCE * 2.;
-const DESIRED_CHUNKS_PER_EDGE: u32 = (TOTAL_SPAN / DESIRED_VOXEL_SIZE as f32) as u32;
+const DESIRED_CHUNKS_PER_EDGE: u32 = (TOTAL_SPAN / DESIRED_VOXEL_SIZE as f32).round() as u32;
 const BUFFER_SIZE: u32 = nearest_power_of_two(DESIRED_CHUNKS_PER_EDGE);
 const RENDER_DIST_VOXELS: u32 = BUFFER_SIZE >> 1;
-const VOXEL_SIZE: u32 = (TOTAL_SPAN / BUFFER_SIZE as f32) as u32; //must be a whole number
+const VOXEL_SIZE: u32 = (TOTAL_SPAN / BUFFER_SIZE as f32).round() as u32; //must be a whole number
 const INV_VOXEL_SIZE: f32 = 1.0 / (VOXEL_SIZE as f32);
 const BUFFER_MASK: i32 = (BUFFER_SIZE - 1) as i32;
 const BUFFER_SHIFT: usize = BUFFER_SIZE.trailing_zeros() as usize;
