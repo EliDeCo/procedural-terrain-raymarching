@@ -35,7 +35,7 @@ use rayon::prelude::*;
 
 //INPUTS
 const DESIRED_VOXEL_SIZE: u32 = 15;
-const RENDER_DISTANCE: f32 = 100.;
+const RENDER_DISTANCE: f32 = 5000.;
 const WINDOW_WIDTH: u32 = 960;
 const WINDOW_HEIGHT: u32 = 540;
 const MOVE_SPEED: f32 = 10.0;
@@ -291,6 +291,7 @@ fn extract_data(
         inv_voxel_size: INV_VOXEL_SIZE,
         buffer_size: BUFFER_SIZE as u32,
         max_height: max_height.0,
+        max_mip_level: BUFFER_SIZE.trailing_zeros()
     });
     //reinsert for the render world
     if let Some(pending) = pending.as_ref() {
@@ -475,6 +476,7 @@ struct Uniform {
     inv_voxel_size: f32,
     buffer_size: u32,
     max_height: f32,
+    max_mip_level: u32,
 }
 
 #[derive(Resource)]

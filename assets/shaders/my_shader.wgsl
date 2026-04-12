@@ -17,6 +17,7 @@ struct Uniform {
     inv_voxel_size: f32,
     buffer_size: u32,
     max_height: f32,
+    max_mip_level: u32,
 }
 
 
@@ -119,7 +120,7 @@ fn frag_main(@builtin(position) frag_coords: vec4f) -> @location(0) vec4f {
     let final_color = materials[hit.material_id].base_color * (AMBIENT + diffuse * shadow);
 
     return vec4f(final_color,1);
-    //let value = sample_mipmap(hit.voxel, 0);
+    //let value = sample_mipmap(hit.voxel, 3);
 
     //return vec4f(vec3f((value+121)/242),1);
 }
