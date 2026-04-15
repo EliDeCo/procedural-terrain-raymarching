@@ -18,6 +18,7 @@ struct Uniform {
     buffer_size: u32,
     max_height: f32,
     max_mip_level: u32,
+    texture_origin: vec2i,
 }
 
 
@@ -120,16 +121,18 @@ fn frag_main(@builtin(position) frag_coords: vec4f) -> @location(0) vec4f {
     let final_color = materials[hit.material_id].base_color * (AMBIENT + diffuse * shadow);
 
     return vec4f(final_color,1);
-    //let value = sample_mipmap(hit.voxel, 3);
+    //let value = sample_mipmap(hit.voxel, 0);
 
     //return vec4f(vec3f((value+121)/242),1);
 }
 
-//voxel is the voxel coordinates of the location we want to sample
 fn sample_mipmap(voxel_coord: vec2i, level: u32) -> f32 {
-    let texel = (voxel_coord & vec2i(unif.buffer_mask)) >> vec2u(level);
+    let local = voxel_coord - unif.texture_origin;
+    let texel = local >> vec2u(level);
     return textureLoad(mipmap, texel, level).x;
 }
+
+
 
 fn traverse(origin: vec3f, dir: vec3f) -> HitInfo {
     let ray_dir_xz = dir.xz;

@@ -33,9 +33,21 @@ use bytemuck::{NoUninit, cast_slice};
 use noise::{NoiseFn, Perlin};
 use rayon::prelude::*;
 
+/// The bug is occurs at the following render distances:
+/// 125
+/// 250
+/// 500
+/// 1000
+/// 2000
+/// 4000
+/// 8000
+///
+/// It only occurs exactly at these values, adding or subtracting 1 leads to normal functionality
+/// Changing desired voxel size has no effect
+
 //INPUTS
-const DESIRED_VOXEL_SIZE: u32 = 15;
-const RENDER_DISTANCE: f32 = 5000.;
+const DESIRED_VOXEL_SIZE: u32 = 10;
+const RENDER_DISTANCE: f32 = 1200.;
 const WINDOW_WIDTH: u32 = 960;
 const WINDOW_HEIGHT: u32 = 540;
 const MOVE_SPEED: f32 = 10.0;
@@ -272,6 +284,7 @@ fn extract_data(
     pending: Extract<Option<Res<PendingTerrainChanges>>>,
     max_height: Extract<Res<MaxHeight>>,
     mipmap_store: Extract<Res<MipmapStore>>,
+    player: Extract<Single<&Transform, With<Player>>>,
 ) {
     let (camera, transform) = (camera.0, camera.1);
     let clip_matrix = camera.clip_from_view();
@@ -291,7 +304,10 @@ fn extract_data(
         inv_voxel_size: INV_VOXEL_SIZE,
         buffer_size: BUFFER_SIZE as u32,
         max_height: max_height.0,
-        max_mip_level: BUFFER_SIZE.trailing_zeros()
+        max_mip_level: BUFFER_SIZE.trailing_zeros(),
+        //top left corner
+        texture_origin: (coord(player.translation) 
+            - IVec2::new(RENDER_DIST_VOXELS as i32, RENDER_DIST_VOXELS as i32)),
     });
     //reinsert for the render world
     if let Some(pending) = pending.as_ref() {
@@ -477,6 +493,7 @@ struct Uniform {
     buffer_size: u32,
     max_height: f32,
     max_mip_level: u32,
+    texture_origin: IVec2,
 }
 
 #[derive(Resource)]
@@ -584,10 +601,26 @@ impl GpuQuadInfo {
     ///Creates a new quad from 4 vertexes (given as [[x,z]; 4])
     fn new(vertexes: [[f32; 2]; 4], noise: &NoiseStore) -> Self {
         // Find min and max X/Z
-        let x_min = vertexes.iter().map(|v| v[0]).reduce(|a,b|a.min(b)).unwrap();
-        let z_min = vertexes.iter().map(|v| v[1]).reduce(|a,b|a.min(b)).unwrap();
-        let x_max = vertexes.iter().map(|v| v[0]).reduce(|a,b|a.max(b)).unwrap();
-        let z_max = vertexes.iter().map(|v| v[1]).reduce(|a,b|a.max(b)).unwrap();
+        let x_min = vertexes
+            .iter()
+            .map(|v| v[0])
+            .reduce(|a, b| a.min(b))
+            .unwrap();
+        let z_min = vertexes
+            .iter()
+            .map(|v| v[1])
+            .reduce(|a, b| a.min(b))
+            .unwrap();
+        let x_max = vertexes
+            .iter()
+            .map(|v| v[0])
+            .reduce(|a, b| a.max(b))
+            .unwrap();
+        let z_max = vertexes
+            .iter()
+            .map(|v| v[1])
+            .reduce(|a, b| a.max(b))
+            .unwrap();
 
         let world_coords = Vec2::new(x_min, z_min);
         let voxel_coords = coord(Vec3::new(world_coords.x, 0.0, world_coords.y));
@@ -617,11 +650,7 @@ impl GpuQuadInfo {
         let p5 = Vec3::new(x_min - VOXEL_SIZE, y5, z_min);
         let p7 = Vec3::new(x_min, y7, z_min - VOXEL_SIZE);
         let p8 = Vec3::new(x_max, y8, z_min - VOXEL_SIZE);
-        let p9 = Vec3::new(
-            x_max + VOXEL_SIZE,
-            y9,
-            z_min - VOXEL_SIZE,
-        );
+        let p9 = Vec3::new(x_max + VOXEL_SIZE, y9, z_min - VOXEL_SIZE);
         let p10 = Vec3::new(x_max + VOXEL_SIZE, y10, z_min);
         //let p11 = Vec3::new(x_max as f32 + VOXEL_SIZE,   y11, z_max as f32);
 
@@ -715,7 +744,7 @@ impl GpuQuadInfo {
 
         // Construct lower plane (right angle at min_x, min_z)
         let lower = {
-            let world_point = Vec3::new(x_min , y0, z_min);
+            let world_point = Vec3::new(x_min, y0, z_min);
             let d = -n_lower.dot(world_point);
             GpuSimplePlane {
                 n_and_d: [n_lower.x, n_lower.y, n_lower.z, d],
@@ -951,21 +980,15 @@ fn update_fps_text(
 }
 
 fn get_height(x: f32, z: f32, noise: &NoiseStore) -> f32 {
-
     let pair = [x as f64, z as f64];
 
-    let o1 = noise
-        .basic_perlin
-        .get(pair) as f32;
+    let o1 = noise.basic_perlin.get(pair) as f32;
 
-    let o2 = 5.
-        * noise.basic_perlin.get(pair.map(|n| n / 70.)) as f32;
+    let o2 = 5. * noise.basic_perlin.get(pair.map(|n| n / 70.)) as f32;
 
-    let o3 = 15.
-        * noise.basic_perlin.get(pair.map(|n| n / 200.)) as f32;
+    let o3 = 15. * noise.basic_perlin.get(pair.map(|n| n / 200.)) as f32;
 
-    let o4 = 100.
-        * noise.basic_perlin.get(pair.map(|n| n / 1000.)) as f32;
+    let o4 = 100. * noise.basic_perlin.get(pair.map(|n| n / 1000.)) as f32;
     /*
     let o_a = match (x+5) % 7 {
         0 => 15,
@@ -1214,37 +1237,49 @@ fn angle_at(center: Vec3, a: Vec3, b: Vec3) -> f32 {
 fn generate_mipmap(
     terrain_store: Option<Res<TerrainStore>>,
     mut mipmap_store: ResMut<MipmapStore>,
+    player_q: Single<&Transform, With<Player>>,
 ) {
     if let Some(terrain_store) = terrain_store {
+        //first, regenerate the torodial buffer into a normal row-major index buffer that reflects world positions
+        let center_coords = coord(player_q.into_inner().translation);
+        let origin_coords = center_coords - IVec2::splat(BUFFER_SIZE as i32 / 2);
+
+        let mut current_level: Vec<f32> = vec![0.0; (BUFFER_SIZE * BUFFER_SIZE) as usize];
+        let size = BUFFER_SIZE as i32;
+        for z in 0..size {
+            for x in 0..size {
+                let world_pos = IVec2::new(x, z) + origin_coords;
+                let torodial_idx = get_index(world_pos.x, world_pos.y);
+                current_level[(z * size + x) as usize] =
+                    terrain_store.quad_buffer[torodial_idx].y_max;
+            }
+        }
+
+        //next, generate the rest of the mip levels
         let num_levels = BUFFER_SIZE.trailing_zeros() as usize + 1;
         let mut mipmaps: Vec<Vec<f32>> = Vec::with_capacity(num_levels);
-        let mut level_size = (BUFFER_SIZE * BUFFER_SIZE) as usize;
         let mut edge_length = BUFFER_SIZE as usize;
 
-        let current_level: Vec<f32> = terrain_store
-            .quad_buffer
-            .iter()
-            .map(|quad| quad.y_max)
-            .collect();
         mipmaps.push(current_level);
 
         for level in 0..(num_levels - 1) {
             let prev_level = &mipmaps[level];
-            level_size >>= 2; //divide total area by 4 for each level
             let prev_edge_length = edge_length; //store previous edge length before updating
             edge_length >>= 1; //divide edge length by 2 for each level
 
-            let mut new_level = Vec::with_capacity(level_size);
+            let mut new_level = Vec::with_capacity(edge_length * edge_length);
 
             // For each 2x2 block in the previous level, take the max of the 4 corresponding quads
             for z in 0..edge_length {
                 for x in 0..edge_length {
                     let z2 = z << 1;
                     let x2 = x << 1;
-                    let y0 = prev_level[(z2 * (prev_edge_length)) + x2];
-                    let y1 = prev_level[(z2 * (prev_edge_length)) + (x2 + 1)];
-                    let y2 = prev_level[((z2 + 1) * (prev_edge_length)) + x2];
-                    let y3 = prev_level[((z2 + 1) * (prev_edge_length)) + (x2 + 1)];
+                    let row0 = z2 * prev_edge_length;
+                    let row1 = (z2 + 1) * prev_edge_length;
+                    let y0 = prev_level[row0 + x2];
+                    let y1 = prev_level[row0 + (x2 + 1)];
+                    let y2 = prev_level[row1 + x2];
+                    let y3 = prev_level[row1 + (x2 + 1)];
                     let max_y = y0.max(y1).max(y2).max(y3);
                     new_level.push(max_y);
                 }
@@ -1253,13 +1288,5 @@ fn generate_mipmap(
         }
 
         mipmap_store.mipmaps = mipmaps;
-        //println!("Generated {} mipmap levels", mipmap_store.mipmaps.len());
-        /* 
-        println!(
-            "Top level has {} quads, next level has {} quads",
-            mipmap_store.mipmaps[0].len(),
-            mipmap_store.mipmaps[1].len()
-        );
-        */
     }
 }
