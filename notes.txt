@@ -32,4 +32,5 @@ Other additions/ optimizations:
 6. Use regression to generate a local sdf for each cell. This could make overhangy terrain possible
 7. Use the local sdf to speed up stepping?
 8. Remove branching using select statements
+9. Can you make a Linear BVH from terrain each frame and just raytrace the entire thing?
 

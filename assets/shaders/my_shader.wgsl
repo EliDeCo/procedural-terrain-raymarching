@@ -108,8 +108,8 @@ fn frag_main(@builtin(position) frag_coords: vec4f) -> @location(0) vec4f {
     let direction = normalize(far - origin);
 
 
-    let hit = traverse(origin, direction);
-
+    //let hit = traverse(origin, direction);
+    let hit = traverse_mipmap(origin, direction);
 
     if hit.material_id == -1 {
         return vec4f(SKY,1);
@@ -117,22 +117,119 @@ fn frag_main(@builtin(position) frag_coords: vec4f) -> @location(0) vec4f {
 
 
     let diffuse = max(0,dot(hit.normal,LIGHT_DIR_INV));
-    let shadow =  traverse_shadow(hit.pos + 0.01 * LIGHT_DIR_INV,LIGHT_DIR_INV);
+    //let shadow =  traverse_shadow(hit.pos + 0.01 * LIGHT_DIR_INV,LIGHT_DIR_INV);
+    let shadow = 1.; //TODO: UNDO THIS WHEN DONE TESTING
     let final_color = materials[hit.material_id].base_color * (AMBIENT + diffuse * shadow);
 
     return vec4f(final_color,1);
-    //let value = sample_mipmap(hit.voxel, 0);
+    //let value = sample_mipmap(hit.voxel, 1);
 
     //return vec4f(vec3f((value+121)/242),1);
 }
 
 fn sample_mipmap(voxel_coord: vec2i, level: u32) -> f32 {
-    let local = voxel_coord - unif.texture_origin;
-    let texel = local >> vec2u(level);
+    let texel = get_texel(voxel_coord, level);
     return textureLoad(mipmap, texel, level).x;
 }
 
+fn get_texel(voxel_coord: vec2i, level: u32) -> vec2i {
+    let local = voxel_coord - unif.texture_origin;
+    return vec2i(local >> vec2u(level)); 
+}
 
+fn traverse_mipmap(origin: vec3f, dir: vec3f) -> HitInfo {
+    let xz_length = length(dir.xz);
+    let tilted_up = dir.y > 0.0;
+
+    //if ray is essentially vertical
+    if xz_length < EPS {
+        if tilted_up {
+            return no_hit();
+        }
+        let current_voxel = to_voxel(origin);
+        let idx = get_index(current_voxel.x,current_voxel.y);
+        let quad = quads[idx];
+        let low_hit = check_lower(origin, dir, quad);
+        if low_hit.material_id != -1 {
+            return low_hit;
+        } else {
+            return check_upper(origin, dir, quad);
+        }
+    }
+
+    
+    let max_height = textureLoad(mipmap, vec2i(0), unif.max_mip_level).x;
+    let t_max = unif.render_distance / xz_length;
+    var t: f32 = 0;
+
+    //if ray begins above max height
+    if origin.y > max_height {
+        // Ray pointing up or horizontal while above max height, will never hit terrain
+        if tilted_up {
+            return no_hit();
+        }
+
+        // Advance ray to where it first hits max_height
+        let t_to_max_height = select((max_height - origin.y) / dir.y, 1e30, abs(dir.y) < EPS);
+        if t_to_max_height > t_max {
+            return no_hit();
+        }
+
+        // Skip ahead to that point
+        t = t_to_max_height;
+    }
+
+    let dir_xz = dir.xz;
+    let inv_dir_xz = 1.0 / dir_xz;
+    var level = unif.max_mip_level;
+    var pos = origin + dir * t;
+
+
+    loop {
+        if t > t_max || ( tilted_up && pos.y > max_height) {
+            return no_hit();
+        }
+
+        let voxel_coord = to_voxel(pos);
+        let cell_height = sample_mipmap(voxel_coord, level);
+        let t_next: f32 = next_t_value(pos, dir_xz, inv_dir_xz, level);
+        let pos_next = origin + dir * (t + t_next);
+
+        //the ray enters and exits above the max height of the current cell, so it can be skipped entirely
+        if pos.y > cell_height && pos_next.y > cell_height {
+            t += t_next;
+            pos = pos_next;
+            level = min(level + 1, unif.max_mip_level);
+        } else {
+            if level == 0 {
+                let idx = get_index(voxel_coord.x, voxel_coord.y);
+                let quad = quads[idx];
+                let some_hit = intersect(origin, dir, quad, pos,pos_next);
+                if some_hit.material_id != -1 {
+                    return some_hit;
+                }
+                t += t_next;
+                pos = pos_next;
+                level += 1;
+            } else {
+                level -= 1;
+            }
+        }
+    }
+    return no_hit();
+}
+
+//It has to be this complicated because the mipmap is centered on the quad that the player resides it,
+//So it isn't always aligned to powers of 2 in world space, requiring us to calculate relative positions
+fn next_t_value(pos: vec3f, dir_xz: vec2f, inv_dir_xz: vec2f, level: u32) -> f32 {
+    let cell_size = unif.voxel_size * f32(1 << level);
+    let origin_world = vec2f(unif.texture_origin) * unif.voxel_size;
+    let relative_xz = pos.xz - origin_world;
+    let cell_coords = floor(relative_xz / cell_size) * cell_size + origin_world;
+    let boundary_pos = cell_coords + step(vec2f(0), dir_xz) * cell_size;
+    let boundary_t = (boundary_pos - pos.xz) * inv_dir_xz;
+    return min(boundary_t.x, boundary_t.y) + EPS;
+}
 
 fn traverse(origin: vec3f, dir: vec3f) -> HitInfo {
     let ray_dir_xz = dir.xz;

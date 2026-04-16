@@ -46,8 +46,8 @@ use rayon::prelude::*;
 /// Changing desired voxel size has no effect
 
 //INPUTS
-const DESIRED_VOXEL_SIZE: u32 = 10;
-const RENDER_DISTANCE: f32 = 1200.;
+const DESIRED_VOXEL_SIZE: u32 = 15;
+const RENDER_DISTANCE: f32 = 5000.;
 const WINDOW_WIDTH: u32 = 960;
 const WINDOW_HEIGHT: u32 = 540;
 const MOVE_SPEED: f32 = 10.0;
@@ -305,8 +305,7 @@ fn extract_data(
         buffer_size: BUFFER_SIZE as u32,
         max_height: max_height.0,
         max_mip_level: BUFFER_SIZE.trailing_zeros(),
-        //top left corner
-        texture_origin: (coord(player.translation) 
+        texture_origin: (coord(player.translation)
             - IVec2::new(RENDER_DIST_VOXELS as i32, RENDER_DIST_VOXELS as i32)),
     });
     //reinsert for the render world
@@ -973,8 +972,15 @@ fn update_fps_text(
             } else {
                 Vec3::ZERO
             };
-            //let coords = coord(pos);
-            **span = format!("{value:.2}");
+            let pos = player_q
+                .single()
+                .unwrap_or(&Transform::default())
+                .translation;
+            let voxel = coord(pos);
+            **span = format!(
+                " FPs: {value:.2} \n Player coords: ({:.1}, {:.1}, {:.1}) \n Voxel coords: ({}, {})",
+                pos.x, pos.y, pos.z, voxel.x, voxel.y
+            );
         }
     }
 }
@@ -988,7 +994,7 @@ fn get_height(x: f32, z: f32, noise: &NoiseStore) -> f32 {
 
     let o3 = 15. * noise.basic_perlin.get(pair.map(|n| n / 200.)) as f32;
 
-    let o4 = 100. * noise.basic_perlin.get(pair.map(|n| n / 1000.)) as f32;
+    let _ = 100. * noise.basic_perlin.get(pair.map(|n| n / 1000.)) as f32;
     /*
     let o_a = match (x+5) % 7 {
         0 => 15,
@@ -1000,7 +1006,7 @@ fn get_height(x: f32, z: f32, noise: &NoiseStore) -> f32 {
         _ => 0
     } as f32;
     */
-    o1 + o2 + o3 + o4 //+ o_a + o_b
+    o1 + o2 + o3 //+o_4 //+ o_a + o_b
 }
 
 ///marker component for fps text
@@ -1029,6 +1035,7 @@ struct TerrainStore {
 
 impl Default for TerrainStore {
     fn default() -> Self {
+        //println!("Initializing terrain store with length {}", BUFFER_SIZE * BUFFER_SIZE);
         TerrainStore {
             quad_buffer: (0..(BUFFER_SIZE * BUFFER_SIZE))
                 .map(|_| GpuQuadInfo::default())
