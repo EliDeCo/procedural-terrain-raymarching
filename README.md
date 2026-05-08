@@ -24,7 +24,6 @@ High-level pipeline:
 2. Raymarch algorithm based on 2d voxel traversal through a heightmap
 4. Intersection position and normal derived from ray-plane intersection
 5. Lighting evaluation (diffuse + shadowing) 
-6. Atmospheric and post-surface effects
 
 ---
 
@@ -44,20 +43,18 @@ High-level pipeline:
 - [x] Heightmap intersection with Lambertian diffuse shading
 - [x] Smooth normal computation
 - [X] Hard shadows
+- [X] Soft shadows
+
+
+
+## Possible future enhancements
 - [ ] Exponential fog
 - [ ] Basic sky model
-
----
-
-## Planned Enhancements
-
-- [X] Soft shadows
 - [ ] Specular highlights
 - [ ] Planar water reflections
 - [ ] Ambient occlusion
 - [ ] Volumetric cloud layer (procedural noise)
 - [ ] Improved terrain generation techniques
-- [ ] Dynamic render distance based on camera position (if feasible)
 
 ---
 
@@ -65,6 +62,8 @@ High-level pipeline:
 
 - Real-time performance at 1920x1080
 - Maintain reasonable performance on non specialized hardware
+
+Both of these goals have been acheived, as even the low powered laptop retains close to 100 frames per second, with a midrange gaming PC pushing past 600. If this project is revisited to add more of the future enhancements, these goals will remain as the target for performance.
 
 ---
 
